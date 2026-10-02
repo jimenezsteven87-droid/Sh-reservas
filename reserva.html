@@ -33,7 +33,7 @@ const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice
 const tm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 const mn=t=>{const[a,b]=t.split(':');return +a*60+ +b};
 const api=async(p,o={})=>{const r=await fetch(CFG.URL+'/rest/v1/'+p,{...o,headers:{apikey:CFG.KEY,'Content-Type':'application/json',...(o.headers||{})}});
-  if(!r.ok){const e=new Error('http');e.status=r.status;throw e}return r.status==204?null:r.json()};
+  if(!r.ok){let d='';try{const j=await r.json();d=j.message||j.hint||j.code||''}catch(_){}const e=new Error('http');e.status=r.status;e.detail=d;throw e}return r.status==204?null:r.json()};
 const today=iso(new Date()),maxd=iso(new Date(Date.now()+CFG.DIAS*864e5));
 let svcs=[],pros=[],rel=[],busy=[],done=null,msg='',S={svc:'',pro:'',date:today,time:'',name:'',phone:'',hp:''};
 
@@ -58,15 +58,15 @@ function slots(){
     if(t>nm&&!b.some(([a,e])=>t<e&&t+s.dur_min>a))r.push(tm(t));
   return r}
 async function book(){
-  if(S.hp)return;
+  if(S.hp||Date.now()-(S.t||0)<4000)return;S.t=Date.now();
   const nm=S.name.trim(),ph=S.phone.replace(/\D/g,'');
-  if(!S.time||nm.length<2||ph.length<8){msg='Elige un horario y completa tu nombre y teléfono.';render();return}
+  if(!S.time||nm.length<2||ph.length<8){S.t=0;msg='Elige un horario y completa tu nombre y teléfono.';render();return}
   const s=svcs.find(x=>x.id==S.svc);
   try{
     await api('citas',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:S.date,hora:S.time,profesional_id:S.pro,servicio_id:S.svc,cliente:nm,telefono:ph})});
     done={...S,svc:s.nombre,pro:pros.find(p=>p.id==S.pro)?.nombre};msg='';
   }catch(e){
-    msg=e.status==409?'Ese horario acaba de ocuparse. Elige otro.':'No pudimos guardar tu reserva. Intenta de nuevo.';
+    msg=e.status==409?'Ese horario acaba de ocuparse. Elige otro.':'No pudimos guardar tu reserva. Intenta de nuevo.'+(location.search.includes('debug')?' ['+(e.status||'sin conexión')+(e.detail?': '+e.detail:'')+']':'');
     S.time='';await loadBusy()}
   render()}
 function render(){
