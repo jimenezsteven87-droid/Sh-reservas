@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reserva tu cita</title>
+<style>
+:root{--bg:#eef3f2;--cd:#fff;--tx:#14212b;--mu:#62727e;--bd:#d9e2e0;--pr:#0e7c86;--pf:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a20;--cd:#17252d;--tx:#e8f0ef;--mu:#8ea3ad;--bd:#27393f;--pr:#3cc2cc;--pf:#06262a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 system-ui,sans-serif}
+main{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:0 0 4px}.sub{color:var(--mu);margin:0 0 16px}
+.card{background:var(--cd);border:1px solid var(--bd);border-radius:12px;padding:16px}
+label,.lb{display:block;margin-top:12px;font-size:13px;font-weight:600;color:var(--mu)}
+input,select{width:100%;padding:10px;margin-top:4px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:16px system-ui}
+.slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+button,a.btn{border:1px solid var(--bd);background:var(--cd);color:var(--tx);border-radius:8px;padding:9px 13px;font:600 15px system-ui;cursor:pointer;text-decoration:none;display:inline-block}
+.on,.go{background:var(--pr);color:var(--pf);border-color:var(--pr)}
+.go{width:100%;margin-top:16px;padding:12px;text-align:center}
+.msg{margin-top:12px;color:#c0392b;font-weight:600}.hp{position:absolute;left:-9999px}
+</style></head><body><main id="app"></main>
+<script>
+// ====== CONFIGURA AQUÍ ======
+const CFG={
+  URL:'https://fbyhcgkyzegsruvydebi.supabase.co',   // Project URL de Supabase
+  KEY:'sb_publishable_M3xs3ZOTv2JDoB25vIe19A_BUeDFoKp',               // clave publicable (anon) de Supabase
+  WA:'573133876496',                                    // WhatsApp del negocio con código de país, ej. 56912345678
+  NOMBRE:'S&H',
+  ABRE:9, CIERRA:19, PASO:30, DIAS:60       // horario, intervalo en minutos y días por adelantado
+};
+// ============================
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const tm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const mn=t=>{const[a,b]=t.split(':');return +a*60+ +b};
+const api=async(p,o={})=>{const r=await fetch(CFG.URL+'/rest/v1/'+p,{...o,headers:{apikey:CFG.KEY,'Content-Type':'application/json',...(o.headers||{})}});
+  if(!r.ok){const e=new Error('http');e.status=r.status;throw e}return r.status==204?null:r.json()};
+const today=iso(new Date()),maxd=iso(new Date(Date.now()+CFG.DIAS*864e5));
+let svcs=[],pros=[],rel=[],busy=[],done=null,msg='',S={svc:'',pro:'',date:today,time:'',name:'',phone:'',hp:''};
+
+function prosFor(){const ids=rel.filter(r=>r.servicio_id==S.svc).map(r=>r.profesional_id);return ids.length?pros.filter(p=>ids.includes(p.id)):pros}
+function fixPro(){const l=prosFor();if(!l.some(p=>p.id==S.pro))S.pro=l[0]?.id}
+async function loadBusy(){busy=[];if(!S.pro)return;
+  try{busy=await api('rpc/ocupados',{method:'POST',body:JSON.stringify({p_prof:S.pro,p_fecha:S.date})})}
+  catch(e){msg='No pudimos consultar los horarios. Intenta de nuevo.'}}
+async function load(){
+  try{[svcs,pros,rel]=await Promise.all([
+    api('servicios?select=id,nombre,dur_min,precio&activo=eq.true&order=nombre'),
+    api('profesionales?select=id,nombre&activo=eq.true&order=nombre'),
+    api('profesional_servicio?select=profesional_id,servicio_id').catch(()=>[])]);
+    S.svc=svcs[0]?.id;fixPro();await loadBusy()}
+  catch(e){msg='No pudimos cargar la agenda. Intenta de nuevo más tarde.'}
+  render()}
+function slots(){
+  const s=svcs.find(x=>x.id==S.svc);if(!s)return[];
+  const n=new Date(),nm=S.date==today?n.getHours()*60+n.getMinutes():-1;
+  const b=busy.map(x=>[mn(x.hora),mn(x.hora)+x.dur_min]),r=[];
+  for(let t=CFG.ABRE*60;t+s.dur_min<=CFG.CIERRA*60;t+=CFG.PASO)
+    if(t>nm&&!b.some(([a,e])=>t<e&&t+s.dur_min>a))r.push(tm(t));
+  return r}
+async function book(){
+  if(S.hp)return;
+  const nm=S.name.trim(),ph=S.phone.replace(/\D/g,'');
+  if(!S.time||nm.length<2||ph.length<8){msg='Elige un horario y completa tu nombre y teléfono.';render();return}
+  const s=svcs.find(x=>x.id==S.svc);
+  try{
+    await api('citas',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:S.date,hora:S.time,profesional_id:S.pro,servicio_id:S.svc,cliente:nm,telefono:ph})});
+    done={...S,svc:s.nombre,pro:pros.find(p=>p.id==S.pro)?.nombre};msg='';
+  }catch(e){
+    msg=e.status==409?'Ese horario acaba de ocuparse. Elige otro.':'No pudimos guardar tu reserva. Intenta de nuevo.';
+    S.time='';await loadBusy()}
+  render()}
+function render(){
+  const a=$('#app');
+  if(done){
+    const t=encodeURIComponent(`Hola, soy ${done.name}. Reservé ${done.svc} el ${done.date} a las ${done.time}. ¿Me confirman?`);
+    a.innerHTML=`<h1>¡Solicitud enviada!</h1><p class="sub">${esc(done.svc)} con ${esc(done.pro)} el ${done.date} a las ${done.time}. Tu cita queda pendiente hasta que ${esc(CFG.NOMBRE)} la confirme.</p>`+
+      (CFG.WA?`<a class="btn go" target="_blank" rel="noopener" href="https://wa.me/${CFG.WA}?text=${t}">Confirmar por WhatsApp</a>`:'');return}
+  if(!svcs.length||!pros.length){a.innerHTML=`<h1>${esc(CFG.NOMBRE)}</h1><p class="msg">${esc(msg||'Aún no hay servicios disponibles.')}</p>`;return}
+  const sel=(k,o)=>`<select data-k="${k}">${o.map(([v,l])=>`<option value="${v}"${v==S[k]?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const sl=slots();
+  a.innerHTML=`<h1>${esc(CFG.NOMBRE)}</h1><p class="sub">Reserva tu cita en un minuto</p><div class="card">
+  <label>Servicio${sel('svc',svcs.map(x=>[x.id,`${x.nombre} · ${x.dur_min} min`]))}</label>
+  <label>Profesional${sel('pro',prosFor().map(x=>[x.id,x.nombre]))}</label>
+  <label>Fecha<input type="date" data-k="date" min="${today}" max="${maxd}" value="${S.date}"></label>
+  <div class="lb">Horarios disponibles</div><div class="slots">${sl.map(t=>`<button data-t="${t}" class="${S.time==t?'on':''}">${t}</button>`).join('')||'<span class="sub">Sin horarios este día</span>'}</div>
+  <label>Tu nombre<input data-f="name" autocomplete="name" value="${esc(S.name)}"></label>
+  <label>Tu teléfono (con código de país)<input data-f="phone" type="tel" autocomplete="tel" value="${esc(S.phone)}"></label>
+  <input class="hp" data-f="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+  ${msg?`<div class="msg">${esc(msg)}</div>`:''}
+  <button class="go" data-book="1">Reservar cita</button></div>${CFG.WA?`<p class="sub" style="margin-top:14px">¿Quieres un tinte? Cada técnica es distinta, <a href="https://wa.me/${CFG.WA}?text=${encodeURIComponent('Hola, quiero consultar por un tinte')}" target="_blank" rel="noopener">escríbenos por WhatsApp</a> y te asesoramos.</p>`:''}`}
+document.addEventListener('change',async e=>{const k=e.target.dataset.k;if(!k)return;S[k]=e.target.value;S.time='';msg='';if(k=='svc')fixPro();await loadBusy();render()});
+document.addEventListener('input',e=>{const f=e.target.dataset.f;if(f)S[f]=e.target.value});
+document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.t){S.time=b.dataset.t;msg='';render()}else if(b.dataset.book)book()});
+load();
+</script></body></html>
