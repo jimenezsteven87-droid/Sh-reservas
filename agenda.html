@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#000000">
+<title>S&amp;H · Agenda</title>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--g:#d4af37;--g2:#f3d98b;--bd:#2f2711;--mu:#a9a9a9}
+*{box-sizing:border-box}body{margin:0;background:#000;color:#fff;font:15px/1.4 Montserrat,system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:14px 14px 90px}
+h1{font-size:17px;margin:0;color:var(--g2);letter-spacing:.08em}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+input,select{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-radius:10px;background:#000;color:#fff;font:16px Montserrat,system-ui,sans-serif;color-scheme:dark}
+.row input,.row select{margin:0;flex:1;min-width:0}
+button{border:1px solid #3d3314;background:#111;color:var(--g2);border-radius:10px;padding:10px 12px;font:600 13px Montserrat,system-ui,sans-serif;cursor:pointer}
+button.pr{background:linear-gradient(135deg,var(--g2),var(--g));color:#000;border:0}
+.stats{display:flex;gap:10px;margin:10px 0}
+.stats div{flex:1;background:#111;border:1px solid var(--bd);border-radius:12px;padding:10px;text-align:center}
+.stats b{display:block;font-size:19px;color:var(--g2)}.stats span{font-size:11px;color:var(--mu)}
+.dh{margin:16px 0 6px;color:var(--g);font-weight:700;text-transform:capitalize;font-size:14px}
+.c{background:linear-gradient(#131313,#0a0a0a);border:1px solid var(--bd);border-left:4px solid var(--pc);border-radius:12px;padding:12px;margin-bottom:10px}
+.c.cancelada{opacity:.45}
+.c h3{margin:0;font-size:15px;display:flex;justify-content:space-between;gap:8px}
+.c p{margin:2px 0;color:var(--mu);font-size:13px}
+.b{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--g);color:var(--g2);white-space:nowrap;height:fit-content}
+.b.pendiente{border-style:dashed}.b.atendida{background:var(--g);color:#000}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.fab{position:fixed;right:16px;bottom:18px;width:56px;height:56px;border-radius:50%;font-size:28px;padding:0;box-shadow:0 0 22px #d4af3755}
+.msg{color:#ff7b6b;font-weight:600;margin:8px 0}.mu{color:var(--mu)}
+#m{display:none;position:fixed;inset:0;background:#000b;align-items:flex-end;justify-content:center;z-index:9}#m.on{display:flex}
+.sh{background:#111;border:1px solid var(--bd);width:100%;max-width:520px;max-height:92%;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+.sh label{display:block;margin-top:10px;font-size:12px;color:var(--mu);font-weight:600}
+@media(min-width:600px){#m{align-items:center}.sh{border-radius:16px}}
+</style></head><body><main id="app"></main><div id="m"></div>
+<script>
+const CFG={URL:'https://fbyhcgkyzegsruvydebi.supabase.co',KEY:'sb_publishable_M3xs3ZOTv2JDoB25vIe19A_BUeDFoKp',RESERVA:'https://jimenezsteven87-droid.github.io/Sh-reservas/reserva.html',NOMBRE:'S&H'};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const add=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return iso(d)};
+const tm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const mn=t=>{const[a,b]=t.split(':');return +a*60+ +b};
+const money=n=>'$'+Number(n||0).toLocaleString('es');
+const choque=e=>e.status==409||/sin_choques|exclusion|conflicting/i.test(e.detail||'');
+const today=iso(new Date());
+let S=null,svcs=[],pros=[],citas=[],date=today,week=false,fp='',err='',loading=false;
+
+async function raw(p,o={}){
+  const h={apikey:CFG.KEY,'Content-Type':'application/json',...(S?{Authorization:'Bearer '+S.access_token}:{}),...(o.headers||{})};
+  const r=await fetch(CFG.URL+p,{...o,headers:h});const t=await r.text();let j=null;try{j=t?JSON.parse(t):null}catch(e){}
+  if(!r.ok){const e=new Error('http');e.status=r.status;e.detail=(j&&(j.message||j.msg||j.error_description))||'';throw e}return j}
+async function auth(body,grant){S=null;const j=await raw('/auth/v1/token?grant_type='+grant,{method:'POST',body:JSON.stringify(body)});S=j;try{localStorage.setItem('sh-rt',j.refresh_token)}catch(e){}}
+async function refresh(){try{const rt=localStorage.getItem('sh-rt');if(!rt)return false;await auth({refresh_token:rt},'refresh_token');return true}catch(e){S=null;return false}}
+async function api(p,o){try{return await raw('/rest/v1/'+p,o)}catch(e){if(e.status==401&&await refresh())return raw('/rest/v1/'+p,o);throw e}}
+
+async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;err='';
+  try{await auth({email:em,password:pw},'password');await load()}catch(e){S=null;err=e.status==400?'Correo o contraseña incorrectos.':'No se pudo iniciar sesión.';render()}}
+async function load(){loading=true;render();
+  try{[svcs,pros]=await Promise.all([api('servicios?select=id,nombre,dur_min,precio&order=nombre'),api('profesionales?select=id,nombre,color&order=nombre')]);await loadCitas();err=''}
+  catch(e){err='No se pudieron cargar los datos.'}loading=false;render()}
+async function loadCitas(){const to=week?add(date,6):date;
+  citas=await api(`citas?select=id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`)}
+async function reload(q){if(!q){loading=true;render()}try{await loadCitas()}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
+async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(body)});err=''}catch(e){err=choque(e)?'Ese horario ya está ocupado.':'No se pudo guardar el cambio.'}await reload(1)}
+
+function wa(id){const c=citas.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id);
+  let ph=c.telefono.replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
+  const d=new Date(c.fecha+'T12:00').toLocaleDateString('es',{weekday:'long',day:'numeric',month:'long'});
+  const t=`Hola ${c.cliente}, te recordamos tu cita en ${CFG.NOMBRE}: ${s?.nombre||'servicio'} con ${p?.nombre||'nuestro equipo'}, ${d} a las ${c.hora.slice(0,5)}. Puedes confirmar, reagendar o cancelar aquí: ${CFG.RESERVA}?t=${c.token}`;
+  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(t)}`,'_blank')}
+
+function closeM(){$('#m').classList.remove('on')}
+function form(c){const nw=!c.id;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.value.trim();
+  const o={profesional_id:v('profesional_id'),fecha:v('fecha'),hora:v('hora')};
+  if(!o.fecha||!o.hora){$('#fe').textContent='Completa fecha y hora.';return}
+  try{
+    if(id)await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({...o,recordatorio_enviado_at:null})});
+    else{const nm=v('cliente');let ph=(v('telefono')||'').replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
+      if(nm.length<2||ph.length<8){$('#fe').textContent='Escribe nombre y celular.';return}
+      await api('citas',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...o,servicio_id:v('servicio_id'),cliente:nm,telefono:ph,estado:'confirmada'})})}
+    closeM();await reload(1)
+  }catch(e){$('#fe').textContent=choque(e)?'Ese horario ya está ocupado.':(e.detail||'No se pudo guardar.')}}
+
+function render(){
+  const a=$('#app');
+  if(!S){a.innerHTML=`<div class="top"><h1>${CFG.NOMBRE} · AGENDA</h1></div><div class="sh" style="border-radius:16px;margin-top:40px"><label>Correo<input id="em" type="email" autocomplete="username"></label><label>Contraseña<input id="pw" type="password" autocomplete="current-password"></label>${err?`<div class="msg">${esc(err)}</div>`:''}<button class="pr" style="width:100%;margin-top:14px;padding:14px" data-a="login">Entrar</button></div>`;return}
+  const list=citas.filter(c=>!fp||c.profesional_id==fp),act=list.filter(c=>c.estado!='cancelada');
+  const precio=id=>svcs.find(s=>s.id==id)?.precio||0,days=[...new Set(list.map(c=>c.fecha))];
+  const card=c=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
+    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span>${h}–${tm(mn(h)+c.dur_min)} · ${esc(c.cliente)}</span><span class="b ${c.estado}">${c.estado}</span></h3><p>${esc(s?.nombre||'')} · ${esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
+  const dl=d=>new Date(d+'T12:00').toLocaleDateString('es',{weekday:'long',day:'numeric',month:'long'});
+  a.innerHTML=`<div class="top"><h1>${CFG.NOMBRE} · AGENDA</h1><div><button data-a="ref">↻</button> <button data-a="out">Salir</button></div></div>
+  <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
+  <div class="row"><select id="fp"><option value="">Todos los profesionales</option>${pros.map(p=>`<option value="${p.id}"${p.id==fp?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select><button data-a="wk">${week?'Ver día':'Ver semana'}</button></div>
+  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+precio(c.servicio_id),0))}</b><span>cobrado</span></div></div>
+  ${err?`<div class="msg">${esc(err)}</div>`:''}
+  ${loading?'<p class="mu">Cargando…</p>':list.length?(week?days.map(d=>`<div class="dh">${dl(d)}</div>`+list.filter(c=>c.fecha==d).map(card).join('')).join(''):`<div class="dh">${dl(date)}</div>`+list.map(card).join('')):'<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>'}
+  <button class="pr fab" data-a="new">+</button>`}
+
+document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+  if(a=='login')return login();
+  if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}S=null;return render()}
+  if(a=='nav'){const n=+b.dataset.n;date=n?add(date,n*(week?7:1)):today;return reload()}
+  if(a=='wk'){week=!week;return reload()}
+  if(a=='ref')return reload();
+  if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}return upd(id,{estado:b.dataset.v})}
+  if(a=='wa')return wa(id);
+  if(a=='mv')return form(citas.find(c=>c.id==id));
+  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:pros[0]?.id,servicio_id:svcs[0]?.id});
+  if(a=='close')return closeM();
+  if(a=='save')return save()});
+document.addEventListener('change',e=>{if(e.target.id=='dt'&&e.target.value){date=e.target.value;reload()}if(e.target.id=='fp'){fp=e.target.value;render()}});
+$('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
+setInterval(()=>{if(S&&!document.hidden&&!$('#m').classList.contains('on'))reload(1)},60000);
+(async()=>{if(await refresh())await load();else render()})();
+</script></body></html>
