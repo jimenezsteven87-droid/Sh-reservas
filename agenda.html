@@ -9,7 +9,7 @@
 *{box-sizing:border-box}body{margin:0;background:#000;color:#fff;font:15px/1.4 Montserrat,system-ui,sans-serif}
 main{max-width:560px;margin:0 auto;padding:14px 14px 90px}
 h1{font-size:17px;margin:0;color:var(--g2);letter-spacing:.08em}
-.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
 input,select{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-radius:10px;background:#000;color:#fff;font:16px Montserrat,system-ui,sans-serif;color-scheme:dark}
 .row input,.row select{margin:0;flex:1;min-width:0}
@@ -85,6 +85,31 @@ async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.va
     closeM();await reload(1)
   }catch(e){$('#fe').textContent=choque(e)?'Ese horario ya está ocupado.':(e.detail||'No se pudo guardar.')}}
 
+const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+async function showBl(){
+  let bls=[];
+  try{bls=await api(`bloqueos?select=*&or=(fecha.is.null,fecha.gte.${today},fecha_fin.gte.${today})&order=fecha.nullsfirst,dia_semana`)}catch(e){}
+  const who=b=>b.profesional_id?(pros.find(p=>p.id==b.profesional_id)?.nombre||'?'):'Todo el equipo';
+  const when=b=>b.dia_semana!=null?'Cada '+DIAS[b.dia_semana]:(b.fecha_fin&&b.fecha_fin!=b.fecha?`${b.fecha} → ${b.fecha_fin}`:b.fecha);
+  const hrs=b=>b.hora_inicio.slice(0,5)=='00:00'&&b.hora_fin.slice(0,5)=='24:00'?'todo el día':`${b.hora_inicio.slice(0,5)}–${b.hora_fin.slice(0,5)}`;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Descansos y ausencias</h3>
+  ${bls.length?bls.map(b=>`<div class="c" style="--pc:#d4af37;margin-top:10px"><h3><span>${esc(who(b))}</span><button data-a="dbl" data-id="${b.id}">Quitar</button></h3><p>${esc(when(b))} · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</p></div>`).join(''):'<p class="mu">No hay descansos cargados.</p>'}
+  <h3 style="color:var(--g2);margin:18px 0 0">Nuevo descanso</h3>
+  <label>Quién<select id="b_pro"><option value="">Todo el equipo</option>${pros.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></label>
+  <label>Cuándo<select id="b_tipo"><option value="f">Un día o varios días (vacaciones, permiso)</option><option value="s">Todas las semanas (almuerzo, día libre)</option></select></label>
+  <div id="g_f"><label>Desde el día<input id="b_fecha" type="date" value="${date}"></label><label>Hasta el día (opcional)<input id="b_fin" type="date"></label></div>
+  <div id="g_s" style="display:none"><label>Día de la semana<select id="b_dia">${DIAS.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></label></div>
+  <label>Horario<select id="b_todo"><option value="1">Todo el día</option><option value="0">Solo un rango de horas</option></select></label>
+  <div id="g_h" style="display:none"><label>Desde<input id="b_hi" type="time" value="13:00"></label><label>Hasta<input id="b_hf" type="time" value="14:00"></label></div>
+  <label>Motivo (opcional)<input id="b_mot" placeholder="Almuerzo, cita médica…"></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="sbl">Agregar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function saveBl(){const v=k=>$('#b_'+k).value,s=v('tipo')=='s',todo=v('todo')=='1',f=$('#fe');
+  const o={profesional_id:v('pro')||null,motivo:v('mot').trim()||null,hora_inicio:todo?'00:00':v('hi'),hora_fin:todo?'24:00':v('hf')};
+  if(s)o.dia_semana=+v('dia');
+  else{o.fecha=v('fecha');o.fecha_fin=v('fin')||null;if(!o.fecha){f.textContent='Elige el día.';return}if(o.fecha_fin&&o.fecha_fin<o.fecha){f.textContent='La fecha final no puede ser anterior a la inicial.';return}}
+  if(!todo&&(!o.hora_inicio||!o.hora_fin||o.hora_fin<=o.hora_inicio)){f.textContent='Revisa las horas: "Hasta" debe ser después de "Desde".';return}
+  try{await api('bloqueos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await showBl()}catch(e){f.textContent=e.detail||'No se pudo guardar.'}}
 function render(){
   const a=$('#app');
   if(!S){a.innerHTML=`<div class="top"><h1>${CFG.NOMBRE} · AGENDA</h1></div><div class="sh" style="border-radius:16px;margin-top:40px"><label>Correo<input id="em" type="email" autocomplete="username"></label><label>Contraseña<input id="pw" type="password" autocomplete="current-password"></label>${err?`<div class="msg">${esc(err)}</div>`:''}<button class="pr" style="width:100%;margin-top:14px;padding:14px" data-a="login">Entrar</button></div>`;return}
@@ -93,7 +118,7 @@ function render(){
   const card=c=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
     return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span>${h}–${tm(mn(h)+c.dur_min)} · ${esc(c.cliente)}</span><span class="b ${c.estado}">${c.estado}</span></h3><p>${esc(s?.nombre||'')} · ${esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
   const dl=d=>new Date(d+'T12:00').toLocaleDateString('es',{weekday:'long',day:'numeric',month:'long'});
-  a.innerHTML=`<div class="top"><h1>${CFG.NOMBRE} · AGENDA</h1><div><button data-a="ref">↻</button> <button data-a="out">Salir</button></div></div>
+  a.innerHTML=`<div class="top"><h1>${CFG.NOMBRE} · AGENDA</h1><div><button data-a="bl">Descansos</button> <button data-a="ref">↻</button> <button data-a="out">Salir</button></div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="row"><select id="fp"><option value="">Todos los profesionales</option>${pros.map(p=>`<option value="${p.id}"${p.id==fp?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select><button data-a="wk">${week?'Ver día':'Ver semana'}</button></div>
   <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+precio(c.servicio_id),0))}</b><span>cobrado</span></div></div>
@@ -111,9 +136,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
   if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:pros[0]?.id,servicio_id:svcs[0]?.id});
+  if(a=='bl')return showBl();
+  if(a=='sbl')return saveBl();
+  if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
   if(a=='close')return closeM();
   if(a=='save')return save()});
-document.addEventListener('change',e=>{if(e.target.id=='dt'&&e.target.value){date=e.target.value;reload()}if(e.target.id=='fp'){fp=e.target.value;render()}});
+document.addEventListener('change',e=>{if(e.target.id=='dt'&&e.target.value){date=e.target.value;reload()}if(e.target.id=='fp'){fp=e.target.value;render()}if(e.target.id=='b_tipo'){$('#g_f').style.display=e.target.value=='f'?'':'none';$('#g_s').style.display=e.target.value=='s'?'':'none'}if(e.target.id=='b_todo')$('#g_h').style.display=e.target.value=='0'?'':'none'});
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
 setInterval(()=>{if(S&&!document.hidden&&!$('#m').classList.contains('on'))reload(1)},60000);
 (async()=>{if(await refresh())await load();else render()})();
