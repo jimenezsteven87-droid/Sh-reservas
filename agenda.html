@@ -10,7 +10,7 @@
 main{max-width:600px;margin:0 auto;padding:12px 14px 90px}
 .hd{text-align:center}.logo{width:112px;height:auto;display:block;margin:0 auto}
 .tag{text-align:center;color:var(--g);letter-spacing:.32em;font-size:10px;margin:2px 0 10px;font-weight:600}
-.tools{display:flex;gap:6px;justify-content:center;margin-bottom:12px}
+.tools{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:12px}
 .row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
 input,select{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-radius:10px;background:#000;color:#fff;font:16px Montserrat,system-ui,sans-serif;color-scheme:dark}
 .row input{margin:0;flex:1;min-width:0}
@@ -81,7 +81,7 @@ async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fe
 async function loadCitas(){const to=mode=='sem'?add(date,6):date;
   citas=await api(`citas?select=id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`)}
 async function load(){loading=true;render();
-  try{[svcs,pros]=await Promise.all([api('servicios?select=id,nombre,dur_min,precio&order=nombre'),api('profesionales?select=id,nombre,color&order=nombre')]);await Promise.all([loadCitas(),loadBl()]);err=''}
+  try{await Promise.all([loadSv(),api('profesionales?select=id,nombre,color&order=nombre').then(r=>pros=r)]);await Promise.all([loadCitas(),loadBl()]);err=''}
   catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true)}
 async function reload(q){if(!q){loading=true;render()}try{await loadCitas();err=''}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
 async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(body)});err=''}catch(e){err=choque(e)?'Ese horario ya está ocupado.':'No se pudo guardar el cambio.'}await reload(1);await watch(true)}
@@ -93,7 +93,7 @@ function wa(id){const c=citas.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_
 
 function closeM(){$('#m').classList.remove('on');render()}
 function form(c){const nw=!c.id;
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
   $('#m').classList.add('on')}
 async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.value.trim();
   const o={profesional_id:v('profesional_id'),fecha:v('fecha'),hora:v('hora')};
@@ -150,6 +150,29 @@ async function watch(silent){
   if(conf.length){setTimeout(()=>chime('conf'),nuevas.length?900:0);msgs.push('✅ Confirmó: '+quien(conf))}
   if(canc.length)msgs.push('❌ Canceló: '+quien(canc));
   if(msgs.length){note(msgs.join('  ·  '));if(needTap)note('Toca la pantalla una vez para activar el sonido. '+msgs[0]);await reload(1)}}
+const CAT={dama:'Dama',caballero:'Caballero',todos:'Para todos'};
+const SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
+async function loadSv(){try{svcs=await api(SVQ)}catch(e){svcs=await api(SVQ0)}}
+function showSv(){
+  const g=k=>svcs.filter(s=>(s.categoria||'todos')==k);
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Servicios y precios</h3>
+  ${['dama','caballero','todos'].map(k=>g(k).length?`<div class="dh">${CAT[k]}</div>`+g(k).map(s=>`<div class="c" style="--pc:#d4af37;${s.activo===false?'opacity:.5':''}"><h3><span>${esc(s.nombre)}</span><button data-a="esv" data-id="${s.id}">Editar</button></h3><p>${s.dur_min} min · ${s.precio>0?money(s.precio):'Precio variable'}${s.activo===false?' · oculto':''}</p></div>`).join(''):'').join('')}
+  <div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="esv" data-id="">+ Nuevo servicio</button></div></div>`;
+  $('#m').classList.add('on')}
+function formSv(id){const s=svcs.find(x=>x.id==id)||{nombre:'',categoria:'dama',dur_min:30,precio:0,activo:true};
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar servicio':'Nuevo servicio'}</h3>
+  <label>Nombre<input id="s_nombre" value="${esc(s.nombre)}"></label>
+  <label>Para quién<select id="s_cat">${Object.entries(CAT).map(([k,v])=>`<option value="${k}"${k==(s.categoria||'todos')?' selected':''}>${v}</option>`).join('')}</select></label>
+  <label>Duración (minutos)<input id="s_dur" type="number" min="5" max="480" step="5" value="${s.dur_min}"></label>
+  <label>Precio (0 si varía)<input id="s_pre" type="number" min="0" step="500" value="${s.precio||0}"></label>
+  <label>Mostrar en la página de reservas<select id="s_act"><option value="1"${s.activo!==false?' selected':''}>Sí</option><option value="0"${s.activo===false?' selected':''}>No (ocultar)</option></select></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="sv">Volver</button><button class="pr" data-a="ssv" data-id="${id||''}">Guardar</button></div></div>`}
+async function saveSv(id){const v=k=>$('#s_'+k).value.trim(),f=$('#fe');
+  const o={nombre:v('nombre'),categoria:v('cat'),dur_min:+v('dur'),precio:+v('pre')||0,activo:v('act')=='1'};
+  if(o.nombre.length<2){f.textContent='Escribe el nombre del servicio.';return}
+  if(!(o.dur_min>=5&&o.dur_min<=480)){f.textContent='La duración debe estar entre 5 y 480 minutos.';return}
+  try{await api(id?'servicios?id=eq.'+id:'servicios',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await loadSv();showSv()}
+  catch(e){f.textContent=e.status==400&&/categoria|activo/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
@@ -171,7 +194,7 @@ function render(){
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')).join('');
   else body=`<div class="dh">${dl(date)}</div>`+list.map(c=>card(c)).join('');
   a.innerHTML=logo()+`<div class="tag">AGENDA</div>
-  <div class="tools"><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
+  <div class="tools"><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Por profesional</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${pros.map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
@@ -188,8 +211,11 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
   if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}return upd(id,{estado:b.dataset.v})}
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
-  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:fp||pros[0]?.id,servicio_id:svcs[0]?.id});
+  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:fp||pros[0]?.id,servicio_id:svcs.find(s=>s.activo!==false)?.id});
   if(a=='snd'){snd=!snd;try{localStorage.setItem('sh-snd',snd?'1':'0')}catch(x){}unlock();if(snd)chime('nueva');return render()}
+  if(a=='sv')return showSv();
+  if(a=='esv')return formSv(id);
+  if(a=='ssv')return saveSv(id);
   if(a=='bl')return showBl();
   if(a=='sbl')return saveBl();
   if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
