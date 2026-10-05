@@ -42,6 +42,7 @@ button.pr{background:linear-gradient(135deg,var(--g2),var(--g));color:#000;borde
 .b{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--g);color:var(--g2);white-space:nowrap}
 .b.pendiente{border-style:dashed}.b.atendida{background:var(--g);color:#000}
 .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+input[type=color]{height:46px;padding:4px}
 .fab{position:fixed;right:16px;bottom:18px;width:56px;height:56px;border-radius:50%;font-size:28px;padding:0;box-shadow:0 0 22px #d4af3755}
 #tt{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);width:calc(100% - 24px);max-width:560px;background:#1a1505;border:1px solid var(--g);color:var(--g2);border-radius:12px;padding:12px 14px;font-weight:600;font-size:13px;z-index:20;text-align:center;box-shadow:0 0 24px #d4af3755}
 .msg{color:#ff7b6b;font-weight:600;margin:8px 0}.mu{color:var(--mu)}
@@ -81,7 +82,7 @@ async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fe
 async function loadCitas(){const to=mode=='sem'?add(date,6):date;
   citas=await api(`citas?select=id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`)}
 async function load(){loading=true;render();
-  try{await Promise.all([loadSv(),api('profesionales?select=id,nombre,color&order=nombre').then(r=>pros=r)]);await Promise.all([loadCitas(),loadBl()]);err=''}
+  try{await Promise.all([loadSv(),loadPr()]);await Promise.all([loadCitas(),loadBl()]);err=''}
   catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true)}
 async function reload(q){if(!q){loading=true;render()}try{await loadCitas();err=''}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
 async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(body)});err=''}catch(e){err=choque(e)?'Ese horario ya está ocupado.':'No se pudo guardar el cambio.'}await reload(1);await watch(true)}
@@ -93,7 +94,7 @@ function wa(id){const c=citas.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_
 
 function closeM(){$('#m').classList.remove('on');render()}
 function form(c){const nw=!c.id;
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.filter(p=>p.activo!==false||p.id==c.profesional_id).map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
   $('#m').classList.add('on')}
 async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.value.trim();
   const o={profesional_id:v('profesional_id'),fecha:v('fecha'),hora:v('hora')};
@@ -113,7 +114,7 @@ async function showBl(){
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Descansos y ausencias</h3>
   ${BL.length?BL.map(b=>`<div class="c" style="--pc:#d4af37;margin-top:10px"><h3><span>${esc(who(b))}</span><button data-a="dbl" data-id="${b.id}">Quitar</button></h3><p>${esc(when(b))} · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</p></div>`).join(''):'<p class="mu">No hay descansos cargados.</p>'}
   <h3 style="color:var(--g2);margin:18px 0 0">Nuevo descanso</h3>
-  <label>Quién<select id="b_pro"><option value="">Todo el equipo</option>${pros.map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></label>
+  <label>Quién<select id="b_pro"><option value="">Todo el equipo</option>${prosA().map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></label>
   <label>Cuándo<select id="b_tipo"><option value="f">Un día o varios días (vacaciones, permiso)</option><option value="s">Todas las semanas (almuerzo, día libre)</option></select></label>
   <div id="g_f"><label>Desde el día<input id="b_fecha" type="date" value="${date}"></label><label>Hasta el día (opcional)<input id="b_fin" type="date"></label></div>
   <div id="g_s" style="display:none"><label>Día de la semana<select id="b_dia">${DIAS.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}</select></label></div>
@@ -173,6 +174,31 @@ async function saveSv(id){const v=k=>$('#s_'+k).value.trim(),f=$('#fe');
   if(!(o.dur_min>=5&&o.dur_min<=480)){f.textContent='La duración debe estar entre 5 y 480 minutos.';return}
   try{await api(id?'servicios?id=eq.'+id:'servicios',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await loadSv();showSv()}
   catch(e){f.textContent=e.status==400&&/categoria|activo/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
+const PAL=['#0e7c86','#c2410c','#7c3aed','#2563eb','#be185d','#16a34a','#ca8a04','#0891b2'];
+const prosA=()=>pros.filter(p=>p.activo!==false);
+async function loadPr(){pros=await api('profesionales?select=id,nombre,color,activo&order=nombre')}
+let pw=null;
+function showPr(){
+  const row=p=>`<div class="c" style="--pc:${p.color};${p.activo===false?'opacity:.5':''}"><h3><span><em style="font-size:16px">${esc(p.nombre)}</em>${p.activo===false?' · oculto':''}</span><button data-a="epr" data-id="${p.id}">Editar</button></h3></div>`;
+  const oc=pros.filter(p=>p.activo===false);
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Equipo</h3><p class="mu">Los profesionales ocultos no aparecen en la página de reservas, pero su historial se conserva.</p>${prosA().map(row).join('')}${oc.length?'<div class="dh">Ocultos</div>'+oc.map(row).join(''):''}<div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="epr" data-id="">+ Nuevo profesional</button></div></div>`;
+  $('#m').classList.add('on')}
+function formPr(id){pw=null;
+  const p=pros.find(x=>x.id==id)||{nombre:'',color:PAL.find(c=>!prosA().some(q=>q.color==c))||PAL[0],activo:true};
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar profesional':'Nuevo profesional'}</h3>
+  <label>Nombre<input id="p_nombre" value="${esc(p.nombre)}"></label>
+  <label>Color en la agenda<input id="p_color" type="color" value="${p.color}"></label>
+  <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo (aparece en reservas)</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no atiende)</option></select></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="pr">Volver</button><button class="pr" data-a="spr" data-id="${id||''}">Guardar</button></div></div>`}
+async function savePr(id){const v=k=>$('#p_'+k).value.trim(),f=$('#fe');
+  const o={nombre:v('nombre'),color:v('color'),activo:v('act')=='1'};
+  if(o.nombre.length<2){f.textContent='Escribe el nombre.';return}
+  try{
+    if(id&&!o.activo&&pw!=id){const r=await api(`citas?select=id&profesional_id=eq.${id}&estado=in.(pendiente,confirmada)&fecha=gte.${today}`);
+      if(r.length){pw=id;f.textContent=`${o.nombre} tiene ${r.length} ${r.length==1?'cita próxima':'citas próximas'}. Seguirán en la agenda hasta que las muevas o canceles. Toca Guardar otra vez para ocultarlo.`;return}}
+    await api(id?'profesionales?id=eq.'+id:'profesionales',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});
+    await loadPr();if(fp&&!prosA().some(p=>p.id==fp))fp='';showPr()
+  }catch(e){f.textContent=e.detail||'No se pudo guardar.'}}
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
@@ -185,8 +211,8 @@ function render(){
   const card=(c,eq)=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
     return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(s?.nombre||'')}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
-    return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
-  const show=fp?pros.filter(p=>p.id==fp):pros;
+    return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
+  const show=(fp?pros.filter(p=>p.id==fp):pros).filter(p=>p.activo!==false||citas.some(c=>c.profesional_id==p.id&&live(c)));
   let body;
   if(loading)body='<p class="mu">Cargando…</p>';
   else if(mode=='eq')body=`<div class="dh">${dl(date)}</div><div class="cols ${show.length==1?'one':''}">${show.map(col).join('')}</div>`;
@@ -194,10 +220,10 @@ function render(){
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')).join('');
   else body=`<div class="dh">${dl(date)}</div>`+list.map(c=>card(c)).join('');
   a.innerHTML=logo()+`<div class="tag">AGENDA</div>
-  <div class="tools"><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
+  <div class="tools"><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Por profesional</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
-  <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${pros.map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
+  <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
   <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+precio(c.servicio_id),0))}</b><span>cobrado</span></div></div>
   ${err?`<div class="msg">${esc(err)}</div>`:''}${body}<button class="pr fab" data-a="new">+</button>`}
 
@@ -211,8 +237,11 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
   if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}return upd(id,{estado:b.dataset.v})}
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
-  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:fp||pros[0]?.id,servicio_id:svcs.find(s=>s.activo!==false)?.id});
+  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id,servicio_id:svcs.find(s=>s.activo!==false)?.id});
   if(a=='snd'){snd=!snd;try{localStorage.setItem('sh-snd',snd?'1':'0')}catch(x){}unlock();if(snd)chime('nueva');return render()}
+  if(a=='pr')return showPr();
+  if(a=='epr')return formPr(id);
+  if(a=='spr')return savePr(id);
   if(a=='sv')return showSv();
   if(a=='esv')return formSv(id);
   if(a=='ssv')return saveSv(id);
