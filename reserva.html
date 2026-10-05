@@ -76,7 +76,7 @@ function slots(){
 async function book(){
   if(S.hp||Date.now()-(S.t||0)<4000)return;S.t=Date.now();
   const nm=S.name.trim(),ph=(p=>p.length==10&&p[0]=='3'?'57'+p:p)(S.phone.replace(/\D/g,''));
-  if(!S.time||nm.length<2||ph.length<8){S.t=0;msg='Elige un horario y completa tu nombre y teléfono.';render();return}
+  if(!S.time||nm.length<2||ph.length<8){S.t=0;msg=S.off?((pros.find(x=>x.id==S.pro)?.nombre||'El profesional')+' está de descanso este día. Elige otra fecha u otro profesional.'):'Elige un horario y completa tu nombre y teléfono.';render();return}
   const s=svcs.find(x=>x.id==S.svc);
   try{
     await api('citas',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:S.date,hora:S.time,profesional_id:S.pro,servicio_id:S.svc,cliente:nm,telefono:ph})});
