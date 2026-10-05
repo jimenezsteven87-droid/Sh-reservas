@@ -152,28 +152,29 @@ async function watch(silent){
   if(canc.length)msgs.push('❌ Canceló: '+quien(canc));
   if(msgs.length){note(msgs.join('  ·  '));if(needTap)note('Toca la pantalla una vez para activar el sonido. '+msgs[0]);await reload(1)}}
 const CAT={dama:'Dama',caballero:'Caballero',todos:'Para todos'};
-const SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
-async function loadSv(){try{svcs=await api(SVQ)}catch(e){svcs=await api(SVQ0)}}
+const SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo,reserva_online&order=nombre',SVQ1='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
+async function loadSv(){try{svcs=await api(SVQ)}catch(e){try{svcs=await api(SVQ1)}catch(e2){svcs=await api(SVQ0)}}}
 function showSv(){
   const g=k=>svcs.filter(s=>(s.categoria||'todos')==k);
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Servicios y precios</h3>
-  ${['dama','caballero','todos'].map(k=>g(k).length?`<div class="dh">${CAT[k]}</div>`+g(k).map(s=>`<div class="c" style="--pc:#d4af37;${s.activo===false?'opacity:.5':''}"><h3><span>${esc(s.nombre)}</span><button data-a="esv" data-id="${s.id}">Editar</button></h3><p>${s.dur_min} min · ${s.precio>0?money(s.precio):'Precio variable'}${s.activo===false?' · oculto':''}</p></div>`).join(''):'').join('')}
+  ${['dama','caballero','todos'].map(k=>g(k).length?`<div class="dh">${CAT[k]}</div>`+g(k).map(s=>`<div class="c" style="--pc:#d4af37;${s.activo===false?'opacity:.5':''}"><h3><span>${esc(s.nombre)}</span><button data-a="esv" data-id="${s.id}">Editar</button></h3><p>${s.dur_min} min · ${s.precio>0?money(s.precio):'Precio variable'}${s.activo===false?' · oculto':''}${s.reserva_online===false?' · solo con valoración':''}</p></div>`).join(''):'').join('')}
   <div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="esv" data-id="">+ Nuevo servicio</button></div></div>`;
   $('#m').classList.add('on')}
-function formSv(id){const s=svcs.find(x=>x.id==id)||{nombre:'',categoria:'dama',dur_min:30,precio:0,activo:true};
+function formSv(id){const s=svcs.find(x=>x.id==id)||{nombre:'',categoria:'dama',dur_min:30,precio:0,activo:true,reserva_online:true};
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar servicio':'Nuevo servicio'}</h3>
   <label>Nombre<input id="s_nombre" value="${esc(s.nombre)}"></label>
   <label>Para quién<select id="s_cat">${Object.entries(CAT).map(([k,v])=>`<option value="${k}"${k==(s.categoria||'todos')?' selected':''}>${v}</option>`).join('')}</select></label>
   <label>Duración (minutos)<input id="s_dur" type="number" min="5" max="480" step="5" value="${s.dur_min}"></label>
   <label>Precio (0 si varía)<input id="s_pre" type="number" min="0" step="500" value="${s.precio||0}"></label>
   <label>Mostrar en la página de reservas<select id="s_act"><option value="1"${s.activo!==false?' selected':''}>Sí</option><option value="0"${s.activo===false?' selected':''}>No (ocultar)</option></select></label>
+  <label>Reserva en línea<select id="s_ro"><option value="1"${s.reserva_online!==false?' selected':''}>Sí, el cliente la reserva solo</option><option value="0"${s.reserva_online===false?' selected':''}>No, solo con valoración previa</option></select></label>
   <div class="msg" id="fe"></div><div class="acts"><button data-a="sv">Volver</button><button class="pr" data-a="ssv" data-id="${id||''}">Guardar</button></div></div>`}
 async function saveSv(id){const v=k=>$('#s_'+k).value.trim(),f=$('#fe');
-  const o={nombre:v('nombre'),categoria:v('cat'),dur_min:+v('dur'),precio:+v('pre')||0,activo:v('act')=='1'};
+  const o={nombre:v('nombre'),categoria:v('cat'),dur_min:+v('dur'),precio:+v('pre')||0,activo:v('act')=='1',reserva_online:v('ro')=='1'};
   if(o.nombre.length<2){f.textContent='Escribe el nombre del servicio.';return}
   if(!(o.dur_min>=5&&o.dur_min<=480)){f.textContent='La duración debe estar entre 5 y 480 minutos.';return}
   try{await api(id?'servicios?id=eq.'+id:'servicios',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await loadSv();showSv()}
-  catch(e){f.textContent=e.status==400&&/categoria|activo/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
+  catch(e){f.textContent=e.status==400&&/categoria|activo|reserva_online/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
 const PAL=['#0e7c86','#c2410c','#7c3aed','#2563eb','#be185d','#16a34a','#ca8a04','#0891b2'];
 const prosA=()=>pros.filter(p=>p.activo!==false);
 async function loadPr(){pros=await api('profesionales?select=id,nombre,color,activo&order=nombre')}
