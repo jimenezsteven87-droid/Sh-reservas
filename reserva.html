@@ -30,6 +30,9 @@ input:focus,select:focus{outline:2px solid var(--g);border-color:var(--g)}
 .ok h2{margin:12px 0 6px;color:var(--g2)}
 .chk{width:56px;height:56px;margin:0 auto;border-radius:50%;background:linear-gradient(135deg,var(--g2),var(--g));color:#000;font-size:30px;font-weight:700;display:grid;place-items:center}
 .hp{position:absolute;left:-9999px}
+.seg{display:flex;background:#000;border:1px solid #3d3314;border-radius:12px;padding:3px;margin-top:10px}
+.seg button{flex:1;border:0;background:none;color:var(--mu);padding:10px 4px;font:600 14px Montserrat,system-ui,sans-serif;cursor:pointer;border-radius:9px}
+.seg button.on{background:linear-gradient(135deg,var(--g2),var(--g));color:#000}
 .alt{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;border:1px solid var(--g);background:transparent;color:var(--g2);font:600 14px Montserrat,system-ui,sans-serif;cursor:pointer}
 </style></head><body><main id="app"></main>
 <script>
@@ -52,6 +55,9 @@ const api=async(p,o={})=>{const r=await fetch(CFG.URL+'/rest/v1/'+p,{...o,header
 const today=iso(new Date()),maxd=iso(new Date(Date.now()+CFG.DIAS*864e5));
 let svcs=[],pros=[],rel=[],busy=[],done=null,msg='',S={svc:'',pro:'',date:today,time:'',name:'',phone:'',hp:''};
 
+const cats=()=>['dama','caballero'].filter(c=>svcs.some(s=>s.categoria==c));
+function svcsFor(){return S.cat?svcs.filter(s=>!s.categoria||s.categoria=='todos'||s.categoria==S.cat):svcs}
+function fixSvc(){const l=svcsFor();if(!l.some(s=>s.id==S.svc))S.svc=l[0]?.id}
 function prosFor(){const ids=rel.filter(r=>r.servicio_id==S.svc).map(r=>r.profesional_id);return ids.length?pros.filter(p=>ids.includes(p.id)):pros}
 function fixPro(){const l=prosFor();if(!l.some(p=>p.id==S.pro))S.pro=l[0]?.id}
 async function loadBusy(){busy=[];S.off=false;if(!S.pro)return;
@@ -60,10 +66,10 @@ async function loadBusy(){busy=[];S.off=false;if(!S.pro)return;
   try{S.off=(await api('rpc/esta_de_descanso',{method:'POST',body:JSON.stringify({p_prof:S.pro,p_fecha:S.date})}))===true}catch(e){S.off=false}}
 async function load(){if(TOKEN)return loadManage();
   try{[svcs,pros,rel]=await Promise.all([
-    api('servicios?select=id,nombre,dur_min,precio&activo=eq.true&order=nombre'),
+    api('servicios?select=id,nombre,dur_min,precio,categoria&activo=eq.true&order=nombre').catch(()=>api('servicios?select=id,nombre,dur_min,precio&activo=eq.true&order=nombre')),
     api('profesionales?select=id,nombre&activo=eq.true&order=nombre'),
     api('profesional_servicio?select=profesional_id,servicio_id').catch(()=>[])]);
-    S.svc=svcs[0]?.id;fixPro();await loadBusy()}
+    S.cat=cats().includes('dama')?'dama':(cats()[0]||'');fixSvc();fixPro();await loadBusy()}
   catch(e){msg='No pudimos cargar la agenda. Intenta de nuevo más tarde.'}
   render()}
 function slots(){
@@ -96,7 +102,7 @@ function render(){
   const sel=(k,o)=>`<select data-k="${k}">${o.map(([v,l])=>`<option value="${v}"${v==S[k]?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
   const sl=slots(),sv=svcs.find(x=>x.id==S.svc),pr=pros.find(x=>x.id==S.pro);
   a.innerHTML=`<div class="hd">${logo}</div><div class="tag">Tu estilo, nuestra pasión</div>
-  <section class="st"><h3><i>1</i>Elige tu servicio</h3>${sel('svc',svcs.map(x=>[x.id,`${x.nombre} · ${x.dur_min} min`]))}</section>
+  <section class="st"><h3><i>1</i>Elige tu servicio</h3>${cats().length>1?`<div class="seg">${cats().map(c=>`<button data-c="${c}" class="${S.cat==c?'on':''}">${c=='dama'?'Dama':'Caballero'}</button>`).join('')}</div>`:''}${sel('svc',svcsFor().map(x=>[x.id,`${x.nombre} · ${x.dur_min} min${x.precio>0?' · $'+Number(x.precio).toLocaleString('es-CO'):''}`]))}</section>
   <section class="st"><h3><i>2</i>Elige quién te atiende</h3>${sel('pro',prosFor().map(x=>[x.id,x.nombre]))}</section>
   <section class="st"><h3><i>3</i>Fecha y hora</h3><input type="date" data-k="date" min="${today}" max="${maxd}" value="${S.date}"><div class="slots">${sl.map(t=>`<button data-t="${t}" class="${S.time==t?'on':''}">${t}</button>`).join('')||`<span class="mu" style="grid-column:1/-1">${S.off?esc((pr&&pr.nombre)||'El profesional')+' está de descanso este día. Prueba otra fecha u otro profesional.':'Sin horarios este día, prueba otra fecha.'}</span>`}</div></section>
   <section class="st"><h3><i>4</i>Tus datos</h3><input data-f="name" placeholder="Tu nombre" autocomplete="name" value="${esc(S.name)}"><input data-f="phone" type="tel" placeholder="Tu celular (ej. 3001234567)" autocomplete="tel" value="${esc(S.phone)}"><input class="hp" data-f="hp" tabindex="-1" autocomplete="off" aria-hidden="true"></section>
@@ -138,6 +144,6 @@ document.addEventListener('change',async e=>{if(e.target.dataset.mk){Md=e.target
 document.addEventListener('change',async e=>{const k=e.target.dataset.k;if(!k)return;S[k]=e.target.value;S.time='';msg='';if(k=='svc')fixPro();await loadBusy();render()});
 document.addEventListener('input',e=>{const f=e.target.dataset.f;if(f)S[f]=e.target.value});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
-  if(b.dataset.t){S.time=b.dataset.t;msg='';render()}else if(b.dataset.book)book();else if(b.dataset.mt){Mt=b.dataset.mt;render()}else if(b.dataset.a)mact(b.dataset.a)});
+  if(b.dataset.t){S.time=b.dataset.t;msg='';render()}else if(b.dataset.c){S.cat=b.dataset.c;fixSvc();fixPro();S.time='';msg='';loadBusy().then(render)}else if(b.dataset.book)book();else if(b.dataset.mt){Mt=b.dataset.mt;render()}else if(b.dataset.a)mact(b.dataset.a)});
 load();
 </script></body></html>
