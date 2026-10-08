@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex"><meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#000000"><link rel="manifest" href="manifest-agenda.json"><link rel="apple-touch-icon" href="icon-192.png"><meta name="apple-mobile-web-app-capable" content="yes">
 <title>S&amp;H · Agenda</title>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -10,7 +10,7 @@
 main{max-width:600px;margin:0 auto;padding:12px 14px 90px}
 .hd{text-align:center}.logo{width:112px;height:auto;display:block;margin:0 auto}
 .tag{text-align:center;color:var(--g);letter-spacing:.32em;font-size:10px;margin:2px 0 10px;font-weight:600}
-.tools{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:12px}
+.tools{display:flex;gap:6px;overflow-x:auto;margin:0 -14px 12px;padding:0 14px 2px;scrollbar-width:none}.tools button{flex:none;white-space:nowrap}
 .row{display:flex;gap:8px;align-items:center;margin-bottom:10px}
 input,select{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-radius:10px;background:#000;color:#fff;font:16px Montserrat,system-ui,sans-serif;color-scheme:dark}
 .row input{margin:0;flex:1;min-width:0}
@@ -43,6 +43,7 @@ button.pr{background:linear-gradient(135deg,var(--g2),var(--g));color:#000;borde
 .b.pendiente{border-style:dashed}.b.atendida{background:var(--g);color:#000}
 .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 input[type=color]{height:46px;padding:4px}
+textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-radius:10px;background:#000;color:#fff;font:15px Montserrat,system-ui,sans-serif;color-scheme:dark}
 .fab{position:fixed;right:16px;bottom:18px;width:56px;height:56px;border-radius:50%;font-size:28px;padding:0;box-shadow:0 0 22px #d4af3755}
 #tt{display:none;position:fixed;top:10px;left:50%;transform:translateX(-50%);width:calc(100% - 24px);max-width:560px;background:#1a1505;border:1px solid var(--g);color:var(--g2);border-radius:12px;padding:12px 14px;font-weight:600;font-size:13px;z-index:20;text-align:center;box-shadow:0 0 24px #d4af3755}
 .msg{color:#ff7b6b;font-weight:600;margin:8px 0}.mu{color:var(--mu)}
@@ -79,8 +80,8 @@ async function api(p,o){try{return await raw('/rest/v1/'+p,o)}catch(e){if(e.stat
 async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;err='';
   try{await auth({email:em,password:pw},'password');await load()}catch(e){S=null;err=e.status==400?'Correo o contraseña incorrectos.':'No se pudo iniciar sesión.';render()}}
 async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fecha.gte.${today},fecha_fin.gte.${today})&order=fecha.nullsfirst,dia_semana`)}catch(e){BL=[]}}
-async function loadCitas(){const to=mode=='sem'?add(date,6):date;
-  citas=await api(`citas?select=id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`)}
+async function loadCitas(){const to=mode=='sem'?add(date,6):date,sel='id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id',rg=`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`;
+  try{citas=await api(`citas?select=${sel},cita_servicios(servicio_id)${rg}`)}catch(e){citas=await api(`citas?select=${sel}${rg}`)}}
 async function load(){loading=true;render();
   try{await Promise.all([loadSv(),loadPr()]);await Promise.all([loadCitas(),loadBl()]);err=''}
   catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true)}
@@ -89,24 +90,31 @@ async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',head
 
 function wa(id){const c=citas.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id);
   let ph=c.telefono.replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
-  const t=`Hola ${c.cliente}, te recordamos tu cita en ${CFG.NOMBRE}: ${s?.nombre||'servicio'} con ${p?.nombre||'nuestro equipo'}, ${dl(c.fecha)} a las ${c.hora.slice(0,5)}. Puedes confirmar, reagendar o cancelar aquí: ${CFG.RESERVA}?t=${c.token}`;
+  const t=`Hola ${c.cliente}, te recordamos tu cita en ${CFG.NOMBRE}: ${svNames(c)||'servicio'} con ${p?.nombre||'nuestro equipo'}, ${dl(c.fecha)} a las ${c.hora.slice(0,5)}. Puedes confirmar, reagendar o cancelar aquí: ${CFG.RESERVA}?t=${c.token}`;
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(t)}`,'_blank')}
 
-function closeM(){$('#m').classList.remove('on');render()}
+function closeM(){fsv=[];$('#m').classList.remove('on');render()}
+let fsv=[];
+const sOpts=sel=>svcs.filter(s=>s.activo!==false||s.id==sel).map(s=>`<option value="${s.id}"${s.id==sel?' selected':''}>${esc(s.nombre)} · ${s.dur_min} min</option>`).join('');
+const totSv=ids=>{const l=ids.map(id=>svcs.find(s=>s.id==id)).filter(Boolean);return{d:l.reduce((a,s)=>a+s.dur_min,0),p:l.reduce((a,s)=>a+(s.precio||0),0)}};
+const readSv=()=>{fsv=[...document.querySelectorAll('[data-sv]')].map(x=>x.value)};
+const readForm=()=>{const v=k=>$('#f_'+k)?.value||'';return{cliente:v('cliente'),telefono:v('telefono'),profesional_id:v('profesional_id'),fecha:v('fecha'),hora:v('hora')}};
 function form(c){const nw=!c.id;
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<label>Cliente<input id="f_cliente"></label><label>Celular<input id="f_telefono" type="tel" placeholder="3001234567"></label><label>Servicio<select id="f_servicio_id">${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)} · ${s.dur_min} min</option>`).join('')}</select></label>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.filter(p=>p.activo!==false||p.id==c.profesional_id).map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${c.hora.slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
+  if(nw&&!fsv.length)fsv=[svcs.find(s=>s.activo!==false)?.id];
+  const t=totSv(fsv);
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${nw?'Nueva cita':'Mover cita'}</h3>${nw?`<datalist id="dl_cli">${CLI.map(x=>`<option value="${esc(x.nombre)}">${esc(x.telefono)}</option>`).join('')}</datalist><datalist id="dl_tel">${CLI.map(x=>`<option value="${esc(x.telefono)}">${esc(x.nombre)}</option>`).join('')}</datalist><label>Cliente<input id="f_cliente" list="dl_cli" autocomplete="off" value="${esc(c.cliente||'')}"></label><label>Celular<input id="f_telefono" list="dl_tel" type="tel" placeholder="3001234567" autocomplete="off" value="${esc(c.telefono||'')}"></label><label>Servicios</label>${fsv.map((id,i)=>`<div class="row" style="margin-top:6px"><select data-sv="${i}">${sOpts(id)}</select>${fsv.length>1?`<button data-a="rsv" data-i="${i}">✕</button>`:''}</div>`).join('')}${fsv.length<4?'<button data-a="asv">+ Agregar otro servicio</button>':''}<p class="mu">Total: ${t.d} min${t.p>0?' · '+money(t.p):''}</p>`:`<p class="mu">${esc(c.cliente)}</p>`}<label>Profesional<select id="f_profesional_id">${pros.filter(p=>p.activo!==false||p.id==c.profesional_id).map(p=>`<option value="${p.id}"${p.id==c.profesional_id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label><label>Fecha<input id="f_fecha" type="date" value="${c.fecha}"></label><label>Hora<input id="f_hora" type="time" step="900" value="${(c.hora||'09:00').slice(0,5)}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="save" data-id="${c.id||''}">Guardar</button></div></div>`;
   $('#m').classList.add('on')}
-async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.value.trim();
+async function save(){const id=$('[data-a=save]').dataset.id,v=k=>$('#f_'+k)?.value.trim(),f=$('#fe');
   const o={profesional_id:v('profesional_id'),fecha:v('fecha'),hora:v('hora')};
-  if(!o.fecha||!o.hora){$('#fe').textContent='Completa fecha y hora.';return}
+  if(!o.fecha||!o.hora){f.textContent='Completa fecha y hora.';return}
   try{
     if(id)await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({...o,recordatorio_enviado_at:null})});
-    else{const nm=v('cliente');let ph=(v('telefono')||'').replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
-      if(nm.length<2||ph.length<8){$('#fe').textContent='Escribe nombre y celular.';return}
-      await api('citas',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({...o,servicio_id:v('servicio_id'),cliente:nm,telefono:ph,estado:'confirmada'})})}
-    $('#m').classList.remove('on');await reload(1);await watch(true)
-  }catch(e){$('#fe').textContent=choque(e)?'Ese horario ya está ocupado.':(e.detail||'No se pudo guardar.')}}
-
+    else{readSv();const nm=v('cliente');let ph=(v('telefono')||'').replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
+      if(nm.length<2||ph.length<8){f.textContent='Escribe nombre y celular.';return}
+      if(new Set(fsv).size<fsv.length){f.textContent='Hay servicios repetidos.';return}
+      await api('rpc/crear_cita_admin',{method:'POST',body:JSON.stringify({p_pro:o.profesional_id,p_fecha:o.fecha,p_hora:o.hora,p_servicios:fsv,p_cliente:nm,p_telefono:ph,p_estado:'confirmada'})});CLI=[]}
+    fsv=[];$('#m').classList.remove('on');await reload(1);await watch(true)
+  }catch(e){f.textContent=choque(e)?'Ese horario ya está ocupado.':(e.status==404?'Falta ejecutar el SQL de servicios múltiples en Supabase.':(e.detail||'No se pudo guardar.'))}}
 async function showBl(){
   await loadBl();
   const who=b=>b.profesional_id?(pros.find(p=>p.id==b.profesional_id)?.nombre||'?'):'Todo el equipo';
@@ -200,6 +208,29 @@ async function savePr(id){const v=k=>$('#p_'+k).value.trim(),f=$('#fe');
     await api(id?'profesionales?id=eq.'+id:'profesionales',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});
     await loadPr();if(fp&&!prosA().some(p=>p.id==fp))fp='';showPr()
   }catch(e){f.textContent=e.detail||'No se pudo guardar.'}}
+const svIds=c=>(c.cita_servicios&&c.cita_servicios.length)?c.cita_servicios.map(x=>x.servicio_id):[c.servicio_id];
+const svNames=c=>svIds(c).map(id=>svcs.find(s=>s.id==id)?.nombre).filter(Boolean).join(' + ');
+const svPrice=c=>svIds(c).reduce((a,id)=>a+(svcs.find(s=>s.id==id)?.precio||0),0);
+let CLI=[],NOTAS={},CLIERR=false;
+async function loadCli(){CLIERR=false;
+  try{const [a,n]=await Promise.all([api('rpc/clientes_resumen',{method:'POST',body:'{}'}),api('clientes_notas?select=telefono,notas')]);CLI=a;NOTAS=Object.fromEntries(n.map(x=>[x.telefono,x.notas]))}
+  catch(e){CLI=[];NOTAS={};CLIERR=true}}
+async function ensureCli(){if(!CLI.length&&!CLIERR)await loadCli()}
+function cliRows(q){const n=q.toLowerCase().trim(),d=q.replace(/\D/g,'');
+  const l=CLI.filter(c=>!n||c.nombre.toLowerCase().includes(n)||(d&&c.telefono.includes(d)));
+  return (l.slice(0,40).map(c=>`<div class="c" style="--pc:#d4af37;cursor:pointer" data-a="fic" data-t="${esc(c.telefono)}"><h3><span><em style="font-size:16px">${esc(c.nombre)}</em></span><span>${NOTAS[c.telefono]?'📝 ':''}${c.visitas} ${c.visitas==1?'visita':'visitas'}</span></h3><p>${esc(c.telefono)}${c.ultima?' · última '+c.ultima:''}${c.gastado>0?' · '+money(c.gastado):''}</p></div>`).join('')||'<p class="mu">Sin resultados.</p>')+(l.length>40?`<p class="mu">Mostrando 40 de ${l.length}. Escribe para buscar.</p>`:'')}
+async function showCli(){await loadCli();
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Clientes</h3>${CLIERR?'<p class="msg">Falta ejecutar el SQL de clientes en Supabase.</p>':`<input id="q_cli" placeholder="Buscar por nombre o celular" autocomplete="off"><div id="cli_list" style="margin-top:10px">${cliRows('')}</div>`}<div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function ficha(tel){
+  const c=CLI.find(x=>x.telefono==tel)||{telefono:tel,nombre:'',visitas:0,gastado:0};
+  let h=[];try{h=await api('rpc/cliente_historial',{method:'POST',body:JSON.stringify({p_tel:tel})})}catch(e){}
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(c.nombre)}</h3><p class="mu">${esc(tel)} · ${c.visitas} ${c.visitas==1?'visita':'visitas'}${c.gastado>0?' · '+money(c.gastado)+' en total':''}</p>
+  <label>Notas del cliente<textarea id="n_cli" rows="3" placeholder="Preferencias, alergias, color de cabello…">${esc(NOTAS[tel]||'')}</textarea></label>
+  <div class="acts"><button class="pr" data-a="ncli" data-t="${esc(tel)}">Guardar notas</button><button data-a="wcli" data-t="${esc(tel)}">💬 WhatsApp</button><button data-a="ncita" data-t="${esc(tel)}">+ Nueva cita</button></div>
+  <div class="dh">Historial</div>${h.length?h.map(x=>`<div class="c ${x.estado}" style="--pc:#d4af37"><h3><span>${x.fecha} · ${x.hora.slice(0,5)}</span><span class="b ${x.estado}">${x.estado}</span></h3><p>${esc(x.servicios||'')} · ${esc(x.profesional||'')}${x.precio>0?' · '+money(x.precio):''}</p></div>`).join(''):'<p class="mu">Sin citas.</p>'}
+  <div class="acts"><button data-a="cli">← Volver</button><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
@@ -210,7 +241,7 @@ function render(){
   const precio=id=>svcs.find(s=>s.id==id)?.precio||0,days=[...new Set(list.map(c=>c.fecha))];
   const cnt=id=>citas.filter(c=>live(c)&&(!id||c.profesional_id==id)).length;
   const card=(c,eq)=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
-    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(s?.nombre||'')}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
+    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
     return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
   const show=(fp?pros.filter(p=>p.id==fp):pros).filter(p=>p.activo!==false||citas.some(c=>c.profesional_id==p.id&&live(c)));
@@ -221,14 +252,14 @@ function render(){
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')).join('');
   else body=`<div class="dh">${dl(date)}</div>`+list.map(c=>card(c)).join('');
   a.innerHTML=logo()+`<div class="tag">AGENDA</div>
-  <div class="tools"><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
+  <div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Por profesional</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
-  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+precio(c.servicio_id),0))}</b><span>cobrado</span></div></div>
+  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+svPrice(c),0))}</b><span>cobrado</span></div></div>
   ${err?`<div class="msg">${esc(err)}</div>`:''}${body}<button class="pr fab" data-a="new">+</button>`}
 
-document.addEventListener('click',async e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+document.addEventListener('click',async e=>{const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
   if(a=='login')return login();
   if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}S=null;return render()}
   if(a=='nav'){const n=+b.dataset.n;date=n?add(date,n*(mode=='sem'?7:1)):today;return reload()}
@@ -238,7 +269,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
   if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}return upd(id,{estado:b.dataset.v})}
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
-  if(a=='new')return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id,servicio_id:svcs.find(s=>s.activo!==false)?.id});
+  if(a=='new'){fsv=[];await ensureCli();return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id})}
   if(a=='snd'){snd=!snd;try{localStorage.setItem('sh-snd',snd?'1':'0')}catch(x){}unlock();if(snd)chime('nueva');return render()}
   if(a=='pr')return showPr();
   if(a=='epr')return formPr(id);
@@ -249,14 +280,30 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button');i
   if(a=='bl')return showBl();
   if(a=='sbl')return saveBl();
   if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
+  if(a=='cli')return showCli();
+  if(a=='fic')return ficha(b.dataset.t);
+  if(a=='ncli'){const t=b.dataset.t;try{await api('clientes_notas',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({telefono:t,nombre:CLI.find(x=>x.telefono==t)?.nombre||'',notas:$('#n_cli').value.trim(),actualizado:new Date().toISOString()})});NOTAS[t]=$('#n_cli').value.trim();note('✅ Notas guardadas')}catch(x){note('No se pudieron guardar las notas.')}return}
+  if(a=='wcli'){const t=b.dataset.t;return window.open(`https://wa.me/${t}?text=${encodeURIComponent('Hola '+(CLI.find(x=>x.telefono==t)?.nombre||'')+', te escribimos de '+CFG.NOMBRE+'.')}`,'_blank')}
+  if(a=='ncita'){const t=b.dataset.t,c=CLI.find(x=>x.telefono==t);fsv=[];return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id,cliente:c?.nombre||'',telefono:t})}
+  if(a=='asv'||a=='rsv'){readSv();const d=readForm();if(a=='asv'){const nx=svcs.find(s=>s.activo!==false&&!fsv.includes(s.id));if(nx)fsv.push(nx.id)}else fsv.splice(+b.dataset.i,1);return form(d)}
+  if(a=='inst'){DI.prompt();try{await DI.userChoice}catch(x){}DI=null;return render()}
   if(a=='close')return closeM();
   if(a=='save')return save()});
 document.addEventListener('change',e=>{const t=e.target;
+  if(t.dataset.sv!==undefined){readSv();form(readForm())}
   if(t.id=='dt'&&t.value){date=t.value;reload()}
   if(t.id=='b_tipo'){$('#g_f').style.display=t.value=='f'?'':'none';$('#g_s').style.display=t.value=='s'?'':'none'}
   if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none'});
+document.addEventListener('input',e=>{const t=e.target;
+  if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
+  if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
+  if(t.id=='f_telefono'){let d=t.value.replace(/\D/g,'');if(d.length==10&&d[0]=='3')d='57'+d;const m=CLI.find(x=>x.telefono==d),n=$('#f_cliente');if(m&&n&&!n.value)n.value=m.nombre}});
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
 setInterval(async()=>{if(!S||document.hidden)return;await watch();if(!$('#m').classList.contains('on'))reload(1)},20000);
+let DI=null;
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();DI=e;if(S)render()});
+window.addEventListener('appinstalled',()=>{DI=null;if(S)render()});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 (async()=>{if(await refresh())await load();else render()})();
 </script></body></html>
