@@ -27,7 +27,7 @@ button.pr{background:linear-gradient(135deg,var(--g2),var(--g));color:#000;borde
 .stats{display:flex;gap:10px;margin:4px 0 6px}
 .stats div{flex:1;background:#111;border:1px solid var(--bd);border-radius:12px;padding:10px;text-align:center}
 .stats b{display:block;font-size:19px;color:var(--g2)}.stats span{font-size:11px;color:var(--mu)}
-.dh{margin:14px 0 8px;color:var(--g);font-weight:700;text-transform:capitalize;font-size:14px}
+.dh{margin:14px 0 8px;color:var(--g);font-weight:700;font-size:14px}.dh::first-letter{text-transform:uppercase}
 .cols{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -14px;padding:0 14px 10px}
 .col{flex:0 0 min(88%,360px);scroll-snap-align:start}.cols.one .col{flex:0 0 100%}
 .ch{display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid var(--pc);padding:6px 2px 8px;margin-bottom:10px}
@@ -53,6 +53,8 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 @media(min-width:600px){#m{align-items:center}.sh{border-radius:16px}}
 
 .lst .c{margin-bottom:10px}
+.sh.wide{max-width:780px}
+.tb{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}.tb th,.tb td{padding:9px 6px;border-bottom:1px solid var(--bd);text-align:right}.tb th:first-child,.tb td:first-child{text-align:left}.tb th{color:var(--mu);font-weight:600}
 .grid{display:flex;overflow-x:auto;border:1px solid var(--bd);border-radius:12px;background:#0a0a0a}
 .gtime{flex:0 0 52px;position:sticky;left:0;background:#0a0a0a;z-index:2}
 .gcol{flex:1 0 150px;border-left:1px solid var(--bd)}
@@ -85,7 +87,7 @@ const iso=d=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice
 const add=(s,n)=>{const d=new Date(s+'T12:00');d.setDate(d.getDate()+n);return iso(d)};
 const tm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 const mn=t=>{const[a,b]=t.split(':');return +a*60+ +b};
-const money=n=>'$'+Number(n||0).toLocaleString('es');
+const money=n=>'$'+String(Math.round(Number(n||0))).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
 const choque=e=>e.status==409||/sin_choques|exclusion|conflicting/i.test(e.detail||'');
 const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
 const hrs=b=>b.hora_inicio.slice(0,5)=='00:00'&&b.hora_fin.slice(0,5)=='24:00'?'todo el día':`${b.hora_inicio.slice(0,5)}–${b.hora_fin.slice(0,5)}`;
@@ -104,8 +106,6 @@ async function api(p,o){try{return await raw('/rest/v1/'+p,o)}catch(e){if(e.stat
 async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;err='';
   try{await auth({email:em,password:pw},'password');await load()}catch(e){S=null;err=e.status==400?'Correo o contraseña incorrectos.':'No se pudo iniciar sesión.';render()}}
 async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fecha.gte.${today},fecha_fin.gte.${today})&order=fecha.nullsfirst,dia_semana`)}catch(e){BL=[]}}
-async function loadCitas(){const to=mode=='sem'?add(date,6):date,sel='id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id',rg=`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora`;
-  try{citas=await api(`citas?select=${sel},cita_servicios(servicio_id)${rg}`)}catch(e){citas=await api(`citas?select=${sel}${rg}`)}}
 async function load(){loading=true;render();
   try{await Promise.all([loadSv(),loadPr()]);await Promise.all([loadCitas(),loadBl()]);err=''}
   catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true)}
@@ -209,28 +209,46 @@ async function saveSv(id){const v=k=>$('#s_'+k).value.trim(),f=$('#fe');
   catch(e){f.textContent=e.status==400&&/categoria|activo|reserva_online/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
 const PAL=['#0e7c86','#c2410c','#7c3aed','#2563eb','#be185d','#16a34a','#ca8a04','#0891b2'];
 const prosA=()=>pros.filter(p=>p.activo!==false);
-async function loadPr(){pros=await api('profesionales?select=id,nombre,color,activo&order=nombre')}
 let pw=null;
 function showPr(){
   const row=p=>`<div class="c" style="--pc:${p.color};${p.activo===false?'opacity:.5':''}"><h3><span><em style="font-size:16px">${esc(p.nombre)}</em>${p.activo===false?' · oculto':''}</span><button data-a="epr" data-id="${p.id}">Editar</button></h3></div>`;
   const oc=pros.filter(p=>p.activo===false);
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Equipo</h3><p class="mu">Los profesionales ocultos no aparecen en la página de reservas, pero su historial se conserva.</p>${prosA().map(row).join('')}${oc.length?'<div class="dh">Ocultos</div>'+oc.map(row).join(''):''}<div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="epr" data-id="">+ Nuevo profesional</button></div></div>`;
   $('#m').classList.add('on')}
+let HOR=[];
+async function loadPr(){try{pros=await api('profesionales?select=id,nombre,color,activo,comision&order=nombre')}catch(e){pros=await api('profesionales?select=id,nombre,color,activo&order=nombre')}
+  try{HOR=await api('horarios?select=*')}catch(e){HOR=[]}}
+const DN=[['1','Lunes'],['2','Martes'],['3','Miércoles'],['4','Jueves'],['5','Viernes'],['6','Sábado'],['0','Domingo']];
 function formPr(id){pw=null;
-  const p=pros.find(x=>x.id==id)||{nombre:'',color:PAL.find(c=>!prosA().some(q=>q.color==c))||PAL[0],activo:true};
+  const p=pros.find(x=>x.id==id)||{nombre:'',color:PAL.find(c=>!prosA().some(q=>q.color==c))||PAL[0],activo:true,comision:60};
+  const hs=HOR.filter(h=>h.profesional_id==id),own=hs.length>0,day=d=>hs.find(h=>h.dia_semana==d);
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar profesional':'Nuevo profesional'}</h3>
   <label>Nombre<input id="p_nombre" value="${esc(p.nombre)}"></label>
   <label>Color en la agenda<input id="p_color" type="color" value="${p.color}"></label>
+  <label>Comisión (%)<input id="p_com" type="number" min="0" max="100" step="1" inputmode="numeric" value="${p.comision??60}"></label>
   <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo (aparece en reservas)</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no atiende)</option></select></label>
+  <label>Horario<select id="p_hor"><option value="0"${own?'':' selected'}>Horario general del salón</option><option value="1"${own?' selected':''}>Horario propio</option></select></label>
+  <div id="g_hor" style="display:${own?'block':'none'}">${DN.map(([d,n])=>{const h=day(d);return `<div class="row" style="margin-top:6px"><b style="width:84px;font-size:13px">${n}</b><select id="h_${d}_on" style="max-width:92px"><option value="1"${h||!own?' selected':''}>Trabaja</option><option value="0"${own&&!h?' selected':''}>Libre</option></select><input id="h_${d}_a" type="time" value="${h?h.hora_inicio.slice(0,5):'09:00'}"><input id="h_${d}_b" type="time" value="${h?h.hora_fin.slice(0,5):'20:30'}"></div>`}).join('')}<p class="mu" style="font-size:12px">Para el almuerzo u otros descansos usa ☕ Descansos. Un servicio debe terminar dentro del horario del profesional.</p></div>
   <div class="msg" id="fe"></div><div class="acts"><button data-a="pr">Volver</button><button class="pr" data-a="spr" data-id="${id||''}">Guardar</button></div></div>`}
 async function savePr(id){const v=k=>$('#p_'+k).value.trim(),f=$('#fe');
-  const o={nombre:v('nombre'),color:v('color'),activo:v('act')=='1'};
+  const o={nombre:v('nombre'),color:v('color'),activo:v('act')=='1',comision:+v('com')};
   if(o.nombre.length<2){f.textContent='Escribe el nombre.';return}
+  if(!(o.comision>=0&&o.comision<=100)){f.textContent='La comisión debe estar entre 0 y 100.';return}
+  const own=v('hor')=='1',rows=[];
+  if(own){for(const[d,n]of DN){if($('#h_'+d+'_on').value=='1'){const a=$('#h_'+d+'_a').value,b=$('#h_'+d+'_b').value;if(!a||!b||b<=a){f.textContent=`Revisa el horario del ${n.toLowerCase()}: la salida debe ser después de la entrada.`;return}rows.push({dia_semana:+d,hora_inicio:a,hora_fin:b})}}
+    if(!rows.length){f.textContent='Marca al menos un día de trabajo, o usa el horario general.';return}}
   try{
     if(id&&!o.activo&&pw!=id){const r=await api(`citas?select=id&profesional_id=eq.${id}&estado=in.(pendiente,confirmada)&fecha=gte.${today}`);
       if(r.length){pw=id;f.textContent=`${o.nombre} tiene ${r.length} ${r.length==1?'cita próxima':'citas próximas'}. Seguirán en la agenda hasta que las muevas o canceles. Toca Guardar otra vez para ocultarlo.`;return}}
-    await api(id?'profesionales?id=eq.'+id:'profesionales',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});
-    await loadPr();if(fp&&!prosA().some(p=>p.id==fp))fp='';showPr()
+    const send=b=>id?api('profesionales?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)}):api('profesionales',{method:'POST',headers:{Prefer:'return=representation'},body:JSON.stringify(b)});
+    let r;try{r=await send(o)}catch(e){if(/comision/i.test(e.detail||'')){const{comision,...o2}=o;r=await send(o2)}else throw e}
+    const pid=id||r[0].id;let aviso='';
+    try{await api('horarios?profesional_id=eq.'+pid,{method:'DELETE',headers:{Prefer:'return=minimal'}});
+      if(own)await api('horarios',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(rows.map(x=>({...x,profesional_id:pid})))})}
+    catch(e){if(own)aviso='Guardé al profesional, pero falta ejecutar el SQL de horarios en Supabase.'}
+    await loadPr();if(fp&&!prosA().some(p=>p.id==fp))fp='';
+    if(aviso){f.textContent=aviso;return}
+    showPr()
   }catch(e){f.textContent=e.detail||'No se pudo guardar.'}}
 const svIds=c=>(c.cita_servicios&&c.cita_servicios.length)?c.cita_servicios.map(x=>x.servicio_id):[c.servicio_id];
 const svNames=c=>svIds(c).map(id=>svcs.find(s=>s.id==id)?.nombre).filter(Boolean).join(' + ');
@@ -269,8 +287,75 @@ function calHtml(show){
     const blocks=dayC.filter(c=>c.profesional_id==p.id).map(c=>`<div class="gb ${c.estado}" data-a="gc" data-id="${c.id}" style="top:${mins(c)-ini}px;height:${Math.max(c.dur_min,26)-2}px;--pc:${p.color}"><b>${c.hora.slice(0,5)}</b> ${esc(c.cliente)}<small>${esc(svNames(c))}</small></div>`).join('');
     const rests=restOf(p.id,date).map(b=>{const a0=mn(b.hora_inicio.slice(0,5)),a1=mn(b.hora_fin.slice(0,5)),s0=Math.max(a0,ini),s1=Math.min(a1,fin);
       return s1>s0?`<div class="gr" style="top:${s0-ini}px;height:${s1-s0}px">☕ ${esc(b.motivo||'Descanso')}</div>`:''}).join('');
-    return `<div class="gcol"><div class="gh" style="--pc:${p.color}">${esc(p.nombre)}</div><div class="gbody" data-a="gs" data-pro="${p.id}" data-ini="${ini}" style="height:${H}px">${rests}${blocks}</div></div>`}).join('');
+    return `<div class="gcol"><div class="gh" style="--pc:${p.color}">${esc(p.nombre)}</div><div class="gbody" data-a="gs" data-pro="${p.id}" data-ini="${ini}" style="height:${H}px">${rests}${nlHtml(p.id,ini,fin)}${blocks}</div></div>`}).join('');
   return `<div class="dh">${dl(date)} · toca un espacio libre para agendar</div><div class="grid"><div class="gtime"><div class="gh">&nbsp;</div><div class="gbody" style="height:${H}px">${labels.join('')}</div></div>${cols}</div>`}
+const SEL0='id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id';
+const SELS=[SEL0+',cobrado,cita_servicios(servicio_id)',SEL0+',cita_servicios(servicio_id)',SEL0];
+async function fetchAll(path){let o=0,all=[];for(;;){const r=await api(`${path}${path.includes('?')?'&':'?'}limit=1000&offset=${o}`);all=all.concat(r);if(r.length<1000||o>=30000)break;o+=1000}return all}
+async function qCitas(rg){let last;for(const s of SELS){try{return await fetchAll(`citas?select=${s}${rg}`)}catch(e){last=e}}throw last}
+async function loadCitas(){const to=mode=='sem'?add(date,6):date;citas=await qCitas(`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora,id`)}
+const valor=c=>c.cobrado!=null?+c.cobrado:svPrice(c);
+const csvCell=v=>{v=v==null?'':String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+const toCsv=(cols,rows)=>[cols.join(';'),...rows.map(r=>cols.map(c=>csvCell(r[c])).join(';'))].join('\r\n');
+function bajar(nombre,texto,tipo){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([tipo=='csv'?'\ufeff'+texto:texto],{type:tipo=='csv'?'text/csv;charset=utf-8':'application/json'}));a.download=nombre;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},800)}
+const proNom=id=>pros.find(p=>p.id==id)?.nombre||'';
+/* ---------- cobro al marcar atendida ---------- */
+function cobrar(id){const c=citas.find(x=>x.id==id),base=svPrice(c);
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Marcar como atendida</h3><p class="mu">${esc(c.cliente)} · ${esc(svNames(c))}</p><label>Valor cobrado${base>0?` (precio de lista ${money(base)})`:' (precio variable)'}<input id="c_val" type="number" min="0" step="500" inputmode="numeric" value="${base>0?base:''}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="scob" data-id="${id}">Guardar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function saveCob(id){const v=$('#c_val').value,f=$('#fe');
+  if(v===''||+v<0){f.textContent='Escribe el valor cobrado (0 si fue cortesía).';return}
+  try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({estado:'atendida',cobrado:+v})});
+    $('#m').classList.remove('on');await reload(1);await watch(true)}
+  catch(e){f.textContent=/cobrado/i.test(e.detail||'')?'Falta ejecutar el SQL de reportes en Supabase.':'No se pudo guardar.'}}
+/* ---------- reportes ---------- */
+let RM=today.slice(0,7),RV='dia',RD=[],RERR=false;
+const mesLbl=m=>{const t=new Date(m+'-01T12:00').toLocaleDateString('es',{month:'long',year:'numeric'});return t[0].toUpperCase()+t.slice(1)};
+const pctDe=id=>{const v=pros.find(p=>p.id==id)?.comision;return v==null?60:+v};
+async function repLoad(){RERR=false;const y=+RM.slice(0,4),mo=+RM.slice(5,7);
+  try{RD=await qCitas(`&estado=eq.atendida&fecha=gte.${RM}-01&fecha=lte.${iso(new Date(y,mo,0))}&order=fecha,hora,id`)}catch(e){RD=[];RERR=true}}
+function repCalc(){const dia={},pro={},svc={};let tot=0;
+  RD.forEach(c=>{const v=valor(c);tot+=v;const d=dia[c.fecha]=dia[c.fecha]||{n:0,v:0};d.n++;d.v+=v;const p=pro[c.profesional_id]=pro[c.profesional_id]||{n:0,v:0};p.n++;p.v+=v;svIds(c).forEach(id=>{const s=svcs.find(x=>x.id==id);if(s)svc[s.nombre]=(svc[s.nombre]||0)+1})});
+  return{dia,pro,svc,tot,com:Object.entries(pro).reduce((a,[id,x])=>a+x.v*pctDe(id)/100,0)}}
+async function showRep(){await repLoad();drawRep()}
+function drawRep(){const r=repCalc(),dias=Object.keys(r.dia).sort(),pk=Object.keys(r.pro).sort((a,b)=>r.pro[b].v-r.pro[a].v),top=Object.entries(r.svc).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const vacio=n=>`<tr><td colspan="${n}" class="mu">Sin citas atendidas este mes.</td></tr>`;
+  const tabla=RV=='dia'
+    ?`<table class="tb"><tr><th>Día</th><th>Citas</th><th>Ingresos</th></tr>${dias.map(d=>`<tr><td>${new Date(d+'T12:00').toLocaleDateString('es',{weekday:'short',day:'numeric'})}</td><td>${r.dia[d].n}</td><td>${money(r.dia[d].v)}</td></tr>`).join('')||vacio(3)}</table>`
+    :`<table class="tb"><tr><th>Profesional</th><th>Citas</th><th>Ingresos</th><th>Comisión</th><th>Salón</th></tr>${pk.map(id=>{const x=r.pro[id],c=x.v*pctDe(id)/100;return `<tr><td>${esc(proNom(id))} <span class="mu">${pctDe(id)}%</span></td><td>${x.n}</td><td>${money(x.v)}</td><td>${money(c)}</td><td>${money(x.v-c)}</td></tr>`}).join('')||vacio(5)}</table>`;
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Reportes</h3>
+  <div class="row" style="margin-top:10px"><button data-a="rm" data-n="-1">‹</button><b style="flex:1;text-align:center">${mesLbl(RM)}</b><button data-a="rm" data-n="1">›</button></div>
+  <div class="stats"><div><b>${money(r.tot)}</b><span>ingresos</span></div><div><b>${money(r.com)}</b><span>comisiones</span></div><div><b>${money(r.tot-r.com)}</b><span>para el salón</span></div></div>
+  <div class="seg"><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Por día</button><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button></div>
+  ${RERR?'<p class="msg">No se pudo cargar el reporte.</p>':tabla}
+  ${top.length?`<div class="dh">Servicios más pedidos</div><p class="mu">${top.map(([n,c])=>esc(n)+' ('+c+')').join(' · ')}</p>`:''}
+  <p class="mu" style="font-size:12px">Cuenta solo las citas marcadas como atendidas, con el valor que registraste al cobrar. La comisión usa el porcentaje de cada profesional (por defecto 60%).</p>
+  <div class="acts"><button data-a="close">Cerrar</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
+  $('#m').classList.add('on')}
+function repCsv(){const cols=['fecha','hora','cliente','profesional','servicios','valor','comision_pct','comision','salon'];
+  bajar(`reporte-${RM}.csv`,toCsv(cols,RD.map(c=>{const v=valor(c),pc=pctDe(c.profesional_id);return{fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,profesional:proNom(c.profesional_id),servicios:svNames(c),valor:v,comision_pct:pc,comision:Math.round(v*pc/100),salon:Math.round(v-v*pc/100)}})),'csv')}
+/* ---------- respaldo ---------- */
+function showResp(){let l='nunca';try{l=localStorage.getItem('sh-resp')||'nunca'}catch(e){}
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Respaldo</h3><p class="mu">Descarga una copia de tus datos y guárdala en tu correo o en Google Drive. Conviene hacerlo una vez al mes. Último respaldo: <b>${esc(l)}</b></p>
+  <div class="acts" style="flex-direction:column"><button class="pr" data-a="rjson">Respaldo completo (JSON)</button><button data-a="rcitas">Citas para Excel (CSV)</button><button data-a="rclientes">Clientes para Excel (CSV)</button><button data-a="close">Cerrar</button></div><div class="msg" id="fe" style="color:var(--g2)"></div></div>`;
+  $('#m').classList.add('on')}
+async function respaldo(k){const f=$('#fe');f.textContent='Preparando la descarga…';
+  try{
+    if(k=='rjson'){const [ci,se,pr,bl,ho,no]=await Promise.all([qCitas('&order=fecha,hora,id'),fetchAll('servicios?select=*&order=id'),fetchAll('profesionales?select=*&order=id'),fetchAll('bloqueos?select=*&order=id'),fetchAll('horarios?select=*&order=id').catch(()=>[]),fetchAll('clientes_notas?select=*&order=telefono').catch(()=>[])]);
+      bajar(`respaldo-sh-${today}.json`,JSON.stringify({creado:new Date().toISOString(),citas:ci,servicios:se,profesionales:pr,bloqueos:bl,horarios:ho,clientes_notas:no},null,1),'json')}
+    else if(k=='rcitas'){const ci=await qCitas('&order=fecha,hora,id');
+      bajar(`citas-sh-${today}.csv`,toCsv(['fecha','hora','cliente','telefono','profesional','servicios','duracion_min','estado','valor','notas'],ci.map(c=>({fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,telefono:c.telefono,profesional:proNom(c.profesional_id),servicios:svNames(c),duracion_min:c.dur_min,estado:c.estado,valor:c.estado=='atendida'?valor(c):'',notas:c.notas}))),'csv')}
+    else{await loadCli();if(CLIERR)throw new Error('cli');
+      bajar(`clientes-sh-${today}.csv`,toCsv(['nombre','telefono','citas','visitas','ultima','gastado','notas'],CLI.map(c=>({...c,notas:NOTAS[c.telefono]||''}))),'csv')}
+    try{localStorage.setItem('sh-resp',today)}catch(e){}
+    f.textContent='Listo ✓ Revisa tu carpeta de descargas.'}
+  catch(e){f.style.color='#ff7b6b';f.textContent=CLIERR&&k=='rclientes'?'Falta ejecutar el SQL de clientes en Supabase.':'No se pudo preparar la descarga. Intenta de nuevo.'}}
+const respBanner=()=>{let l=null;try{l=localStorage.getItem('sh-resp')}catch(e){return''}const d=l?Math.floor((new Date(today+'T12:00')-new Date(l+'T12:00'))/864e5):999;
+  return d>30?`<div class="rest" style="margin-bottom:10px">💾 ${l?`Hace ${d} días que no descargas un respaldo.`:'Aún no has descargado un respaldo.'} <button data-a="resp" style="margin-left:6px">Hacerlo ahora</button></div>`:''};
+/* ---------- horario propio por profesional ---------- */
+const workTxt=(pid,d)=>{const hs=HOR.filter(h=>h.profesional_id==pid);if(!hs.length)return'';const dow=new Date(d+'T12:00').getDay(),r=hs.filter(h=>h.dia_semana==dow);return r.length?'🕒 '+r.map(h=>h.hora_inicio.slice(0,5)+'–'+h.hora_fin.slice(0,5)).join(', '):'🕒 Día libre'};
+function noLab(pid,d){const hs=HOR.filter(h=>h.profesional_id==pid);if(!hs.length)return[];const dow=new Date(d+'T12:00').getDay(),r=hs.filter(h=>h.dia_semana==dow).map(h=>[mn(h.hora_inicio.slice(0,5)),mn(h.hora_fin.slice(0,5))]).sort((a,b)=>a[0]-b[0]),g=[];let cur=0;for(const[a,b]of r){if(a>cur)g.push([cur,a]);cur=Math.max(cur,b)}if(cur<1440)g.push([cur,1440]);return g}
+const nlHtml=(pid,ini,fin)=>noLab(pid,date).map(([a,b])=>{const s0=Math.max(a,ini),s1=Math.min(b,fin);return s1>s0?`<div class="gr" style="top:${s0-ini}px;height:${s1-s0}px">${a==0&&b==1440?'Día libre':'Fuera de horario'}</div>`:''}).join('');
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
@@ -284,7 +369,7 @@ function render(){
     return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
   cardFn=card;
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
-    return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
+    return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${workTxt(p.id,date)?`<div class="rest">${workTxt(p.id,date)}</div>`:''}${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
   const show=(fp?pros.filter(p=>p.id==fp):pros).filter(p=>p.activo!==false||citas.some(c=>c.profesional_id==p.id&&live(c)));
   let body;
   if(loading)body='<p class="mu">Cargando…</p>';
@@ -293,12 +378,12 @@ function render(){
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
   else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
-  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
-  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+svPrice(c),0))}</b><span>cobrado</span></div></div>
-  ${err?`<div class="msg">${esc(err)}</div>`:''}${body}<button class="pr fab" data-a="new">+</button>`}
+  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+valor(c),0))}</b><span>cobrado</span></div></div>
+  ${err?`<div class="msg">${esc(err)}</div>`:''}${respBanner()}${body}<button class="pr fab" data-a="new">+</button>`}
 
 document.addEventListener('click',async e=>{const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
   if(a=='login')return login();
@@ -307,7 +392,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='mode'){mode=b.dataset.v;return reload()}
   if(a=='fp'){fp=b.dataset.v;return render()}
   if(a=='ref'){await loadBl();return reload()}
-  if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}$('#m').classList.remove('on');return upd(id,{estado:b.dataset.v})}
+  if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}if(b.dataset.v=='atendida')return cobrar(id);$('#m').classList.remove('on');return upd(id,{estado:b.dataset.v})}
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
   if(a=='new'){fsv=[];await ensureCli();return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id})}
@@ -321,6 +406,13 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='bl')return showBl();
   if(a=='sbl')return saveBl();
   if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
+  if(a=='rep')return showRep();
+  if(a=='rm'){const[y,m]=RM.split('-').map(Number),d=new Date(y,m-1+(+b.dataset.n),1);RM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');await repLoad();return drawRep()}
+  if(a=='rv'){RV=b.dataset.v;return drawRep()}
+  if(a=='rcsv')return repCsv();
+  if(a=='resp')return showResp();
+  if(a=='rjson'||a=='rcitas'||a=='rclientes')return respaldo(a);
+  if(a=='scob')return saveCob(id);
   if(a=='gc')return showCita(id);
   if(a=='gs'){const r=b.getBoundingClientRect(),t=+b.dataset.ini+Math.floor((e.clientY-r.top)/30)*30;fsv=[];await ensureCli();return form({fecha:date,hora:tm(t),profesional_id:b.dataset.pro})}
   if(a=='cli')return showCli();
@@ -336,7 +428,8 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.sv!==undefined){readSv();form(readForm())}
   if(t.id=='dt'&&t.value){date=t.value;reload()}
   if(t.id=='b_tipo'){$('#g_f').style.display=t.value=='f'?'':'none';$('#g_s').style.display=t.value=='s'?'':'none'}
-  if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none'});
+  if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none';
+  if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none'});
 document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
   if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
