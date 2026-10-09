@@ -51,6 +51,30 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 .sh{background:#111;border:1px solid var(--bd);width:100%;max-width:520px;max-height:92%;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
 .sh label{display:block;margin-top:10px;font-size:12px;color:var(--mu);font-weight:600}
 @media(min-width:600px){#m{align-items:center}.sh{border-radius:16px}}
+
+.lst .c{margin-bottom:10px}
+.grid{display:flex;overflow-x:auto;border:1px solid var(--bd);border-radius:12px;background:#0a0a0a}
+.gtime{flex:0 0 52px;position:sticky;left:0;background:#0a0a0a;z-index:2}
+.gcol{flex:1 0 150px;border-left:1px solid var(--bd)}
+.gh{height:38px;display:flex;align-items:center;justify-content:center;font-weight:700;border-bottom:3px solid var(--pc,#333)}
+.gbody{position:relative;background:repeating-linear-gradient(to bottom,transparent 0,transparent 59px,#2a2410 59px,#2a2410 60px);cursor:cell}
+.tl{position:absolute;right:6px;font-size:11px;color:var(--mu);margin-top:3px}
+.gb{position:absolute;left:3px;right:3px;border-radius:8px;padding:3px 6px;font-size:12px;overflow:hidden;background:color-mix(in srgb,var(--pc) 26%,#0a0a0a);border-left:4px solid var(--pc);cursor:pointer;line-height:1.25}
+.gb small{display:block;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gb.pendiente{border-left-style:dashed}.gb.atendida{opacity:.65}
+.gr{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,#1a1505,#1a1505 6px,#241c07 6px,#241c07 12px);color:var(--g2);font-size:11px;padding:4px 6px;border-top:1px dashed var(--g);overflow:hidden;pointer-events:none}
+@media(hover:hover){button:hover{filter:brightness(1.18)}.gb:hover{filter:brightness(1.25)}}
+@media(min-width:900px){
+ main{max-width:1280px;padding:18px 28px 90px}
+ .head{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:14px}
+ .brand{display:flex;align-items:center;gap:14px}.brand .logo{width:78px;margin:0}.brand .tag{margin:0}
+ .tools{margin:0;padding:0;overflow:visible;flex-wrap:wrap;justify-content:flex-end}
+ .row{max-width:460px}.seg{max-width:560px}.stats{max-width:720px}
+ .chips{margin:0 0 8px;padding:2px 0 8px;flex-wrap:wrap}
+ .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;overflow:visible;margin:0;padding:0}.col{flex:none}
+ .lst{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}.lst .c{margin:0}
+ .gcol{flex:1 0 190px}.gb{font-size:13px}
+}
 </style></head><body><main id="app"></main><div id="m"></div><div id="tt"></div>
 <script>
 const CFG={URL:'https://fbyhcgkyzegsruvydebi.supabase.co',KEY:'sb_publishable_M3xs3ZOTv2JDoB25vIe19A_BUeDFoKp',RESERVA:'https://jimenezsteven87-droid.github.io/Sh-reservas/reserva.html',NOMBRE:'S&H'};
@@ -67,7 +91,7 @@ const DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'
 const hrs=b=>b.hora_inicio.slice(0,5)=='00:00'&&b.hora_fin.slice(0,5)=='24:00'?'todo el día':`${b.hora_inicio.slice(0,5)}–${b.hora_fin.slice(0,5)}`;
 const dl=d=>new Date(d+'T12:00').toLocaleDateString('es',{weekday:'long',day:'numeric',month:'long'});
 const today=iso(new Date());
-let S=null,svcs=[],pros=[],citas=[],BL=[],date=today,mode='eq',fp='',err='',loading=false;
+let S=null,svcs=[],pros=[],citas=[],BL=[],date=today,mode=matchMedia('(min-width:900px)').matches?'cal':'eq',fp='',err='',loading=false;
 
 async function raw(p,o={}){
   const h={apikey:CFG.KEY,'Content-Type':'application/json',...(S?{Authorization:'Bearer '+S.access_token}:{}),...(o.headers||{})};
@@ -231,30 +255,47 @@ async function ficha(tel){
   <div class="dh">Historial</div>${h.length?h.map(x=>`<div class="c ${x.estado}" style="--pc:#d4af37"><h3><span>${x.fecha} · ${x.hora.slice(0,5)}</span><span class="b ${x.estado}">${x.estado}</span></h3><p>${esc(x.servicios||'')} · ${esc(x.profesional||'')}${x.precio>0?' · '+money(x.precio):''}</p></div>`).join(''):'<p class="mu">Sin citas.</p>'}
   <div class="acts"><button data-a="cli">← Volver</button><button data-a="close">Cerrar</button></div></div>`;
   $('#m').classList.add('on')}
+let cardFn=null;
+function showCita(id){const c=citas.find(x=>x.id==id);if(!c||!cardFn)return;
+  $('#m').innerHTML=`<div class="sh">${cardFn(c,0)}<div class="acts"><button data-a="close">Cerrar</button></div></div>`;$('#m').classList.add('on')}
+function calHtml(show){
+  const mins=c=>mn(c.hora.slice(0,5));
+  const dayC=citas.filter(c=>c.estado!='cancelada'&&c.fecha==date&&(!fp||c.profesional_id==fp));
+  let ini=9*60,fin=21*60;
+  dayC.forEach(c=>{ini=Math.min(ini,Math.floor(mins(c)/60)*60);fin=Math.max(fin,Math.ceil((mins(c)+c.dur_min)/60)*60)});
+  const H=fin-ini,labels=[];
+  for(let t=ini;t<fin;t+=60)labels.push(`<div class="tl" style="top:${t-ini}px">${tm(t)}</div>`);
+  const cols=show.map(p=>{
+    const blocks=dayC.filter(c=>c.profesional_id==p.id).map(c=>`<div class="gb ${c.estado}" data-a="gc" data-id="${c.id}" style="top:${mins(c)-ini}px;height:${Math.max(c.dur_min,26)-2}px;--pc:${p.color}"><b>${c.hora.slice(0,5)}</b> ${esc(c.cliente)}<small>${esc(svNames(c))}</small></div>`).join('');
+    const rests=restOf(p.id,date).map(b=>{const a0=mn(b.hora_inicio.slice(0,5)),a1=mn(b.hora_fin.slice(0,5)),s0=Math.max(a0,ini),s1=Math.min(a1,fin);
+      return s1>s0?`<div class="gr" style="top:${s0-ini}px;height:${s1-s0}px">☕ ${esc(b.motivo||'Descanso')}</div>`:''}).join('');
+    return `<div class="gcol"><div class="gh" style="--pc:${p.color}">${esc(p.nombre)}</div><div class="gbody" data-a="gs" data-pro="${p.id}" data-ini="${ini}" style="height:${H}px">${rests}${blocks}</div></div>`}).join('');
+  return `<div class="dh">${dl(date)} · toca un espacio libre para agendar</div><div class="grid"><div class="gtime"><div class="gh">&nbsp;</div><div class="gbody" style="height:${H}px">${labels.join('')}</div></div>${cols}</div>`}
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
   const a=$('#app'),logo=w=>`<div class="hd"><img class="logo" src="${LOGO}" alt="S&H Centro de Belleza y Barbería"${w?` style="width:${w}px"`:''}></div>`;
-  if(!S){a.innerHTML=logo(150)+`<div class="tag">AGENDA</div><div class="sh" style="border-radius:16px;margin-top:18px"><label>Correo<input id="em" type="email" autocomplete="username"></label><label>Contraseña<input id="pw" type="password" autocomplete="current-password"></label>${err?`<div class="msg">${esc(err)}</div>`:''}<button class="pr" style="width:100%;margin-top:14px;padding:14px" data-a="login">Entrar</button></div>`;return}
+  if(!S){a.innerHTML=logo(150)+`<div class="tag">AGENDA</div><div class="sh" style="border-radius:16px;margin:18px auto 0"><label>Correo<input id="em" type="email" autocomplete="username"></label><label>Contraseña<input id="pw" type="password" autocomplete="current-password"></label>${err?`<div class="msg">${esc(err)}</div>`:''}<button class="pr" style="width:100%;margin-top:14px;padding:14px" data-a="login">Entrar</button></div>`;return}
   const wk=mode=='sem',live=c=>c.estado!='cancelada';
   const list=citas.filter(c=>!fp||c.profesional_id==fp),act=list.filter(live);
   const precio=id=>svcs.find(s=>s.id==id)?.precio||0,days=[...new Set(list.map(c=>c.fecha))];
   const cnt=id=>citas.filter(c=>live(c)&&(!id||c.profesional_id==id)).length;
   const card=(c,eq)=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
     return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
+  cardFn=card;
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
     return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
   const show=(fp?pros.filter(p=>p.id==fp):pros).filter(p=>p.activo!==false||citas.some(c=>c.profesional_id==p.id&&live(c)));
   let body;
   if(loading)body='<p class="mu">Cargando…</p>';
+  else if(mode=='cal')body=calHtml(show);
   else if(mode=='eq')body=`<div class="dh">${dl(date)}</div><div class="cols ${show.length==1?'one':''}">${show.map(col).join('')}</div>`;
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
-  else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')).join('');
-  else body=`<div class="dh">${dl(date)}</div>`+list.map(c=>card(c)).join('');
-  a.innerHTML=logo()+`<div class="tag">AGENDA</div>
-  <div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div>
+  else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
+  else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
-  <div class="seg"><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Por profesional</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
+  <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
   <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+svPrice(c),0))}</b><span>cobrado</span></div></div>
   ${err?`<div class="msg">${esc(err)}</div>`:''}${body}<button class="pr fab" data-a="new">+</button>`}
@@ -266,7 +307,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='mode'){mode=b.dataset.v;return reload()}
   if(a=='fp'){fp=b.dataset.v;return render()}
   if(a=='ref'){await loadBl();return reload()}
-  if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}return upd(id,{estado:b.dataset.v})}
+  if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}$('#m').classList.remove('on');return upd(id,{estado:b.dataset.v})}
   if(a=='wa')return wa(id);
   if(a=='mv')return form(citas.find(c=>c.id==id));
   if(a=='new'){fsv=[];await ensureCli();return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id})}
@@ -280,6 +321,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='bl')return showBl();
   if(a=='sbl')return saveBl();
   if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
+  if(a=='gc')return showCita(id);
+  if(a=='gs'){const r=b.getBoundingClientRect(),t=+b.dataset.ini+Math.floor((e.clientY-r.top)/30)*30;fsv=[];await ensureCli();return form({fecha:date,hora:tm(t),profesional_id:b.dataset.pro})}
   if(a=='cli')return showCli();
   if(a=='fic')return ficha(b.dataset.t);
   if(a=='ncli'){const t=b.dataset.t;try{await api('clientes_notas',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({telefono:t,nombre:CLI.find(x=>x.telefono==t)?.nombre||'',notas:$('#n_cli').value.trim(),actualizado:new Date().toISOString()})});NOTAS[t]=$('#n_cli').value.trim();note('✅ Notas guardadas')}catch(x){note('No se pudieron guardar las notas.')}return}
@@ -299,6 +342,7 @@ document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
   if(t.id=='f_telefono'){let d=t.value.replace(/\D/g,'');if(d.length==10&&d[0]=='3')d='57'+d;const m=CLI.find(x=>x.telefono==d),n=$('#f_cliente');if(m&&n&&!n.value)n.value=m.nombre}});
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
+document.addEventListener('keydown',e=>{if(e.key=='Escape'&&$('#m').classList.contains('on'))closeM()});
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
 setInterval(async()=>{if(!S||document.hidden)return;await watch();if(!$('#m').classList.contains('on'))reload(1)},20000);
 let DI=null;
