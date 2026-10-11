@@ -106,13 +106,13 @@ async function api(p,o){try{return await raw('/rest/v1/'+p,o)}catch(e){if(e.stat
 async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;err='';
   try{await auth({email:em,password:pw},'password');await load()}catch(e){S=null;err=e.status==400?'Correo o contraseña incorrectos.':'No se pudo iniciar sesión.';render()}}
 async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fecha.gte.${today},fecha_fin.gte.${today})&order=fecha.nullsfirst,dia_semana`)}catch(e){BL=[]}}
-async function load(){loading=true;render();
+async function load(){await getRol();if(ROL.rol=='pro')return loadPro();if(ROL.rol=='nada'){loading=false;return render()}loading=true;render();
   try{await Promise.all([loadSv(),loadPr()]);await Promise.all([loadCitas(),loadBl()]);err=''}
-  catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true)}
-async function reload(q){if(!q){loading=true;render()}try{await loadCitas();err=''}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
+  catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true);pushInit()}
+async function reload(q){if(ROL.rol=='pro')return loadPro(q);if(!q){loading=true;render()}try{await loadCitas();err=''}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
 async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(body)});err=''}catch(e){err=choque(e)?'Ese horario ya está ocupado.':'No se pudo guardar el cambio.'}await reload(1);await watch(true)}
 
-function wa(id){const c=citas.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id);
+function wa(id){const c=citas.find(x=>x.id==id)||MAN.find(x=>x.id==id),s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id);
   let ph=c.telefono.replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
   const t=`Hola ${c.cliente}, te recordamos tu cita en ${CFG.NOMBRE}: ${svNames(c)||'servicio'} con ${p?.nombre||'nuestro equipo'}, ${dl(c.fecha)} a las ${c.hora.slice(0,5)}. Puedes confirmar, reagendar o cancelar aquí: ${CFG.RESERVA}?t=${c.token}`;
   window.open(`https://wa.me/${ph}?text=${encodeURIComponent(t)}`,'_blank')}
@@ -229,7 +229,7 @@ function formPr(id){pw=null;
   <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo (aparece en reservas)</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no atiende)</option></select></label>
   <label>Horario<select id="p_hor"><option value="0"${own?'':' selected'}>Horario general del salón</option><option value="1"${own?' selected':''}>Horario propio</option></select></label>
   <div id="g_hor" style="display:${own?'block':'none'}">${DN.map(([d,n])=>{const h=day(d);return `<div class="row" style="margin-top:6px"><b style="width:84px;font-size:13px">${n}</b><select id="h_${d}_on" style="max-width:92px"><option value="1"${h||!own?' selected':''}>Trabaja</option><option value="0"${own&&!h?' selected':''}>Libre</option></select><input id="h_${d}_a" type="time" value="${h?h.hora_inicio.slice(0,5):'09:00'}"><input id="h_${d}_b" type="time" value="${h?h.hora_fin.slice(0,5):'20:30'}"></div>`}).join('')}<p class="mu" style="font-size:12px">Para el almuerzo u otros descansos usa ☕ Descansos. Un servicio debe terminar dentro del horario del profesional.</p></div>
-  <div class="msg" id="fe"></div><div class="acts"><button data-a="pr">Volver</button><button class="pr" data-a="spr" data-id="${id||''}">Guardar</button></div></div>`}
+  ${id?`<div class="dh">Acceso a la agenda</div><p class="mu" id="acc">…</p><label>Correo del profesional<input id="p_mail" type="email" placeholder="correo con el que creaste su usuario"></label><div class="acts"><button data-a="dpro" data-id="${id}">Dar acceso</button><button data-a="qpro" data-id="${id}">Quitar acceso</button></div><p class="mu" style="font-size:12px">Primero crea su usuario en Supabase > Authentication > Users. Verá solo su agenda, sin teléfonos ni precios, y no podrá modificar nada.</p>`:''}<div class="msg" id="fe"></div><div class="acts"><button data-a="pr">Volver</button><button class="pr" data-a="spr" data-id="${id||''}">Guardar</button></div></div>`;if(id)accLoad(id)}
 async function savePr(id){const v=k=>$('#p_'+k).value.trim(),f=$('#fe');
   const o={nombre:v('nombre'),color:v('color'),activo:v('act')=='1',comision:+v('com')};
   if(o.nombre.length<2){f.textContent='Escribe el nombre.';return}
@@ -262,7 +262,7 @@ function cliRows(q){const n=q.toLowerCase().trim(),d=q.replace(/\D/g,'');
   const l=CLI.filter(c=>!n||c.nombre.toLowerCase().includes(n)||(d&&c.telefono.includes(d)));
   return (l.slice(0,40).map(c=>`<div class="c" style="--pc:#d4af37;cursor:pointer" data-a="fic" data-t="${esc(c.telefono)}"><h3><span><em style="font-size:16px">${esc(c.nombre)}</em></span><span>${NOTAS[c.telefono]?'📝 ':''}${c.visitas} ${c.visitas==1?'visita':'visitas'}</span></h3><p>${esc(c.telefono)}${c.ultima?' · última '+c.ultima:''}${c.gastado>0?' · '+money(c.gastado):''}</p></div>`).join('')||'<p class="mu">Sin resultados.</p>')+(l.length>40?`<p class="mu">Mostrando 40 de ${l.length}. Escribe para buscar.</p>`:'')}
 async function showCli(){await loadCli();
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Clientes</h3>${CLIERR?'<p class="msg">Falta ejecutar el SQL de clientes en Supabase.</p>':`<input id="q_cli" placeholder="Buscar por nombre o celular" autocomplete="off"><div id="cli_list" style="margin-top:10px">${cliRows('')}</div>`}<div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Clientes</h3><div class="seg" style="margin-top:10px"><button class="on">Todos</button><button data-a="ina">No vuelven</button></div>${CLIERR?'<p class="msg">Falta ejecutar el SQL de clientes en Supabase.</p>':`<input id="q_cli" placeholder="Buscar por nombre o celular" autocomplete="off"><div id="cli_list" style="margin-top:10px">${cliRows('')}</div>`}<div class="acts"><button data-a="close">Cerrar</button></div></div>`;
   $('#m').classList.add('on')}
 async function ficha(tel){
   const c=CLI.find(x=>x.telefono==tel)||{telefono:tel,nombre:'',visitas:0,gastado:0};
@@ -290,7 +290,7 @@ function calHtml(show){
     return `<div class="gcol"><div class="gh" style="--pc:${p.color}">${esc(p.nombre)}</div><div class="gbody" data-a="gs" data-pro="${p.id}" data-ini="${ini}" style="height:${H}px">${rests}${nlHtml(p.id,ini,fin)}${blocks}</div></div>`}).join('');
   return `<div class="dh">${dl(date)} · toca un espacio libre para agendar</div><div class="grid"><div class="gtime"><div class="gh">&nbsp;</div><div class="gbody" style="height:${H}px">${labels.join('')}</div></div>${cols}</div>`}
 const SEL0='id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesional_id,servicio_id';
-const SELS=[SEL0+',cobrado,cita_servicios(servicio_id)',SEL0+',cita_servicios(servicio_id)',SEL0];
+const SELS=[SEL0+',cobrado,metodo_pago,cita_servicios(servicio_id)',SEL0+',cobrado,cita_servicios(servicio_id)',SEL0+',cita_servicios(servicio_id)',SEL0];
 async function fetchAll(path){let o=0,all=[];for(;;){const r=await api(`${path}${path.includes('?')?'&':'?'}limit=1000&offset=${o}`);all=all.concat(r);if(r.length<1000||o>=30000)break;o+=1000}return all}
 async function qCitas(rg){let last;for(const s of SELS){try{return await fetchAll(`citas?select=${s}${rg}`)}catch(e){last=e}}throw last}
 async function loadCitas(){const to=mode=='sem'?add(date,6):date;citas=await qCitas(`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora,id`)}
@@ -299,24 +299,93 @@ const csvCell=v=>{v=v==null?'':String(v);return /[";\n\r]/.test(v)?'"'+v.replace
 const toCsv=(cols,rows)=>[cols.join(';'),...rows.map(r=>cols.map(c=>csvCell(r[c])).join(';'))].join('\r\n');
 function bajar(nombre,texto,tipo){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([tipo=='csv'?'\ufeff'+texto:texto],{type:tipo=='csv'?'text/csv;charset=utf-8':'application/json'}));a.download=nombre;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},800)}
 const proNom=id=>pros.find(p=>p.id==id)?.nombre||'';
-/* ---------- cobro al marcar atendida ---------- */
-function cobrar(id){const c=citas.find(x=>x.id==id),base=svPrice(c);
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Marcar como atendida</h3><p class="mu">${esc(c.cliente)} · ${esc(svNames(c))}</p><label>Valor cobrado${base>0?` (precio de lista ${money(base)})`:' (precio variable)'}<input id="c_val" type="number" min="0" step="500" inputmode="numeric" value="${base>0?base:''}"></label><div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="scob" data-id="${id}">Guardar</button></div></div>`;
+/* ---------- cobro, caja, mañana, avisos y vista de profesional ---------- */
+let MAN=[],PC=[],PR={},CR=[],CJ=today,cobFrom=null,ROL={rol:'dueno'},PS='no';
+const METODOS=[['efectivo','Efectivo'],['nequi','Nequi'],['daviplata','Daviplata'],['tarjeta','Tarjeta'],['transferencia','Transferencia'],['otro','Otro']];
+const metLbl=m=>METODOS.find(x=>x[0]==m)?.[1]||'Sin dato';
+const cget=id=>citas.find(x=>x.id==id)||PC.find(x=>x.id==id)||CR.find(x=>x.id==id);
+function cobrar(id,from){cobFrom=from||null;const c=cget(id);if(!c)return;
+  const base=c.precio!=null?+c.precio:svPrice(c),v0=c.cobrado!=null?c.cobrado:(base>0?base:''),ya=c.estado=='atendida';
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${ya?'Editar cobro':'Marcar como atendida'}</h3><p class="mu">${esc(c.cliente)} · ${esc(c.servicios||svNames(c))}</p>
+  <label>Valor cobrado${base>0?` (precio de lista ${money(base)})`:' (precio variable)'}<input id="c_val" type="number" min="0" step="500" inputmode="numeric" value="${v0}"></label>
+  <label>Método de pago<select id="c_met">${METODOS.map(([k,n])=>`<option value="${k}"${(c.metodo_pago||'efectivo')==k?' selected':''}>${n}</option>`).join('')}</select></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="${from=='caja'?'caja':'close'}">Cancelar</button><button class="pr" data-a="scob" data-id="${id}">Guardar</button></div></div>`;
   $('#m').classList.add('on')}
-async function saveCob(id){const v=$('#c_val').value,f=$('#fe');
+async function saveCob(id){const v=$('#c_val').value,m=$('#c_met').value,f=$('#fe');
   if(v===''||+v<0){f.textContent='Escribe el valor cobrado (0 si fue cortesía).';return}
-  try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({estado:'atendida',cobrado:+v})});
-    $('#m').classList.remove('on');await reload(1);await watch(true)}
-  catch(e){f.textContent=/cobrado/i.test(e.detail||'')?'Falta ejecutar el SQL de reportes en Supabase.':'No se pudo guardar.'}}
+  try{
+    {const send=b=>api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)});
+      try{await send({estado:'atendida',cobrado:+v,metodo_pago:m})}
+      catch(e){if(/metodo_pago/i.test(e.detail||'')){await send({estado:'atendida',cobrado:+v});note('Guardado sin método de pago: falta ejecutar el SQL de caja.')}else throw e}}
+    $('#m').classList.remove('on');
+    await reload(1);await watch(true);if(cobFrom=='caja')await showCaja()
+  }catch(e){f.textContent=/cobrado/i.test(e.detail||'')?'Falta ejecutar el SQL de reportes en Supabase.':'No se pudo guardar.'}}
+/* caja */
+async function showCaja(){try{CR=await qCitas(`&estado=eq.atendida&fecha=eq.${CJ}&order=hora,id`)}catch(e){CR=[]}drawCaja()}
+function drawCaja(){const tot={};let t=0;CR.forEach(c=>{const v=valor(c),k=c.metodo_pago||'sin';tot[k]=(tot[k]||0)+v;t+=v});
+  const lines=[...METODOS.map(x=>x[0]),'sin'].filter(k=>tot[k]!=null).map(k=>`<tr><td>${k=='sin'?'Sin método registrado':metLbl(k)}</td><td>${money(tot[k])}</td></tr>`).join('');
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Cierre de caja</h3>
+  <div class="row" style="margin-top:10px"><button data-a="cjn" data-n="-1">‹</button><input type="date" id="cj_dt" value="${CJ}"><button data-a="cjn" data-n="1">›</button><button data-a="cjn" data-n="0">Hoy</button></div>
+  <div class="stats"><div><b>${money(t)}</b><span>total cobrado</span></div><div><b>${CR.length}</b><span>servicios atendidos</span></div><div><b>${money(tot.efectivo||0)}</b><span>en efectivo</span></div></div>
+  ${lines?`<table class="tb"><tr><th>Método de pago</th><th>Total</th></tr>${lines}</table>`:''}
+  <div class="dh">Cobros del día</div>
+  ${CR.length?CR.map(c=>`<div class="c" style="--pc:#d4af37;cursor:pointer" data-a="ecob" data-id="${c.id}"><h3><span><em style="font-size:16px">${c.hora.slice(0,5)}</em> ${esc(c.cliente)}</span><span>${money(valor(c))}</span></h3><p>${esc(svNames(c))} · ${esc(proNom(c.profesional_id))} · ${metLbl(c.metodo_pago)}</p></div>`).join(''):'<p class="mu">No hay servicios atendidos este día.</p>'}
+  <p class="mu" style="font-size:12px">Toca un cobro para corregir el valor o el método de pago.</p>
+  <div class="acts"><button data-a="close">Cerrar</button><button data-a="cjcsv">Descargar para Excel</button></div></div>`;
+  $('#m').classList.add('on')}
+function cajaCsv(){bajar(`caja-${CJ}.csv`,toCsv(['fecha','hora','cliente','profesional','servicios','valor','metodo'],CR.map(c=>({fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,profesional:proNom(c.profesional_id),servicios:svNames(c),valor:valor(c),metodo:metLbl(c.metodo_pago)}))),'csv')}
+/* recordar las citas de mañana */
+const manMark=()=>{try{return JSON.parse(localStorage.getItem('sh-wam')||'{}')}catch(e){return{}}};
+async function showMan(){try{MAN=await qCitas(`&fecha=eq.${add(today,1)}&estado=in.(pendiente,confirmada)&order=hora,id`)}catch(e){MAN=[]}drawMan()}
+function drawMan(){const mk=manMark();
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Recordar las citas de mañana</h3><p class="mu">${dl(add(today,1))} · ${MAN.length} ${MAN.length==1?'cita':'citas'}. Cada botón abre WhatsApp con el mensaje y el enlace para confirmar, reagendar o cancelar.</p>
+  ${MAN.length?MAN.map(c=>{const ok=mk[c.id]==today;return `<div class="c" style="--pc:#d4af37"><h3><span><em>${c.hora.slice(0,5)}</em> ${esc(c.cliente)}</span><span class="b ${c.estado}">${c.estado}</span></h3><p>${esc(svNames(c))} · ${esc(proNom(c.profesional_id))}</p><div class="acts"><button class="${ok?'':'pr'}" data-a="wam" data-id="${c.id}">${ok?'✓ Enviado · enviar otra vez':'💬 Enviar recordatorio'}</button></div></div>`}).join(''):'<p class="mu">No hay citas para mañana.</p>'}
+  <div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
+/* avisos al celular (notificaciones push) */
+const VAPID='BJnaBbAb4mwvmKirFPbvAHgs4W286jyrZ79b6B8upLPFXaMHgojoMz4kgbAjH9CtOAxVSs6y8FBy93KBrl7yhUU';
+const u8=b=>Uint8Array.from(atob(b.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));
+async function pushInit(){PS='no';try{if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window))return render();const reg=await navigator.serviceWorker.getRegistration();if(!reg)return render();PS=(await reg.pushManager.getSubscription())?'on':'off'}catch(e){PS='no'}render()}
+async function pushOn(){try{const p=await Notification.requestPermission();if(p!='granted'){note('Para recibir avisos debes permitir las notificaciones de esta página en Chrome.');return}
+  const reg=await navigator.serviceWorker.ready,sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(VAPID)}),j=sub.toJSON();
+  await api('push_subs?on_conflict=endpoint',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({endpoint:j.endpoint,p256dh:j.keys.p256dh,auth:j.keys.auth})});
+  PS='on';render();note('✅ Avisos activados en este dispositivo.')}
+  catch(e){note(e.status==404?'Falta ejecutar el SQL de avisos en Supabase.':'No se pudieron activar los avisos en este dispositivo.')}}
+async function pushOff(){try{const reg=await navigator.serviceWorker.ready,s=await reg.pushManager.getSubscription();if(s){try{await api('push_subs?endpoint=eq.'+encodeURIComponent(s.endpoint),{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(e){}await s.unsubscribe()}PS='off';render();note('Avisos desactivados en este dispositivo.')}catch(e){note('No se pudieron desactivar los avisos.')}}
+/* vista de profesional */
+async function getRol(){try{const r=await api('rpc/mi_rol',{method:'POST',body:'{}'});ROL=(r&&r[0])||{rol:'nada'}}catch(e){ROL={rol:'dueno'}}}
+async function loadPro(q){if(!q){loading=true;render()}
+  try{const to=mode=='sem'?add(date,6):date;
+    PC=await api('rpc/pro_citas',{method:'POST',body:JSON.stringify({p_desde:date,p_hasta:to})});
+    err=''}
+  catch(e){err='No se pudo cargar tu agenda.'}loading=false;render()}
+function renderPro(){const a=$('#app'),wk=mode=='sem';
+  const head=`<div class="head"><div class="brand"><img class="logo" src="${LOGO}" alt="S&H"><div class="tag">MI AGENDA</div></div><div class="tools"><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>`;
+  if(ROL.rol!='pro'){a.innerHTML=head+'<p class="msg">Tu usuario todavía no tiene acceso a la agenda. Pídele al administrador que lo active.</p>';return}
+  const days=[...new Set(PC.map(c=>c.fecha))];
+  const card=c=>{const h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
+    return `<div class="c ${c.estado}" style="--pc:#d4af37"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(c.servicios||'')}</p></div>`};
+  a.innerHTML=head+`<p class="nm" style="font-size:18px;margin:0 0 10px">Hola, ${esc(ROL.nombre||'')} 👋</p>
+  <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
+  <div class="seg"><button data-a="mode" data-v="lista" class="${wk?'':'on'}">Día</button><button data-a="mode" data-v="sem" class="${wk?'on':''}">Semana</button></div>
+  <div class="stats"><div><b>${PC.length}</b><span>citas</span></div><div><b>${PC.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div></div>
+  ${err?`<div class="msg">${esc(err)}</div>`:''}${loading?'<p class="mu">Cargando…</p>':PC.length?(wk?days.map(d=>`<div class="dh">${dl(d)}</div><div class="lst">${PC.filter(c=>c.fecha==d).map(card).join('')}</div>`).join(''):`<div class="dh">${dl(date)}</div><div class="lst">${PC.map(card).join('')}</div>`):'<p class="mu" style="text-align:center;margin-top:30px">No tienes citas en este periodo.</p>'}`}
+/* acceso de profesionales (desde 👥 Equipo) */
+async function accLoad(id){const el=()=>$('#acc');try{const e=await api('rpc/acceso_pro',{method:'POST',body:JSON.stringify({p_prof:id})});if(el())el().textContent=e?'Acceso activo: '+e:'Sin acceso a la agenda.'}catch(x){if(el())el().textContent='Disponible después de ejecutar el SQL de accesos.'}}
+async function accSet(id,on){const f=$('#fe');
+  try{if(on){const m=$('#p_mail').value.trim();if(!m){f.textContent='Escribe el correo con el que creaste su usuario.';return}await api('rpc/dar_acceso_pro',{method:'POST',body:JSON.stringify({p_prof:id,p_email:m})})}
+    else await api('rpc/quitar_acceso_pro',{method:'POST',body:JSON.stringify({p_prof:id})});
+    f.textContent='';note(on?'✅ Acceso activado.':'Acceso quitado.');accLoad(id)}
+  catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL de accesos (parte 2).':(e.detail&&e.status==400?e.detail:'No se pudo actualizar el acceso.')}}
 /* ---------- reportes ---------- */
 let RM=today.slice(0,7),RV='dia',RD=[],RERR=false;
 const mesLbl=m=>{const t=new Date(m+'-01T12:00').toLocaleDateString('es',{month:'long',year:'numeric'});return t[0].toUpperCase()+t.slice(1)};
 const pctDe=id=>{const v=pros.find(p=>p.id==id)?.comision;return v==null?60:+v};
 async function repLoad(){RERR=false;const y=+RM.slice(0,4),mo=+RM.slice(5,7);
   try{RD=await qCitas(`&estado=eq.atendida&fecha=gte.${RM}-01&fecha=lte.${iso(new Date(y,mo,0))}&order=fecha,hora,id`)}catch(e){RD=[];RERR=true}}
-function repCalc(){const dia={},pro={},svc={};let tot=0;
-  RD.forEach(c=>{const v=valor(c);tot+=v;const d=dia[c.fecha]=dia[c.fecha]||{n:0,v:0};d.n++;d.v+=v;const p=pro[c.profesional_id]=pro[c.profesional_id]||{n:0,v:0};p.n++;p.v+=v;svIds(c).forEach(id=>{const s=svcs.find(x=>x.id==id);if(s)svc[s.nombre]=(svc[s.nombre]||0)+1})});
-  return{dia,pro,svc,tot,com:Object.entries(pro).reduce((a,[id,x])=>a+x.v*pctDe(id)/100,0)}}
+function repCalc(){const dia={},pro={},svc={},met={};let tot=0;
+  RD.forEach(c=>{const v=valor(c);tot+=v;met[c.metodo_pago||'sin']=(met[c.metodo_pago||'sin']||0)+v;const d=dia[c.fecha]=dia[c.fecha]||{n:0,v:0};d.n++;d.v+=v;const p=pro[c.profesional_id]=pro[c.profesional_id]||{n:0,v:0};p.n++;p.v+=v;svIds(c).forEach(id=>{const s=svcs.find(x=>x.id==id);if(s)svc[s.nombre]=(svc[s.nombre]||0)+1})});
+  return{dia,pro,svc,met,tot,com:Object.entries(pro).reduce((a,[id,x])=>a+x.v*pctDe(id)/100,0)}}
 async function showRep(){await repLoad();drawRep()}
 function drawRep(){const r=repCalc(),dias=Object.keys(r.dia).sort(),pk=Object.keys(r.pro).sort((a,b)=>r.pro[b].v-r.pro[a].v),top=Object.entries(r.svc).sort((a,b)=>b[1]-a[1]).slice(0,5);
   const vacio=n=>`<tr><td colspan="${n}" class="mu">Sin citas atendidas este mes.</td></tr>`;
@@ -326,14 +395,14 @@ function drawRep(){const r=repCalc(),dias=Object.keys(r.dia).sort(),pk=Object.ke
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Reportes</h3>
   <div class="row" style="margin-top:10px"><button data-a="rm" data-n="-1">‹</button><b style="flex:1;text-align:center">${mesLbl(RM)}</b><button data-a="rm" data-n="1">›</button></div>
   <div class="stats"><div><b>${money(r.tot)}</b><span>ingresos</span></div><div><b>${money(r.com)}</b><span>comisiones</span></div><div><b>${money(r.tot-r.com)}</b><span>para el salón</span></div></div>
-  <div class="seg"><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Por día</button><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button></div>
+  ${Object.keys(r.met).length?`<p class="mu" style="margin:8px 0 0">Por método de pago: ${Object.entries(r.met).map(([k,x])=>(k=='sin'?'Sin dato':metLbl(k))+' '+money(x)).join(' · ')}</p>`:''}<div class="seg"><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Por día</button><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button></div>
   ${RERR?'<p class="msg">No se pudo cargar el reporte.</p>':tabla}
   ${top.length?`<div class="dh">Servicios más pedidos</div><p class="mu">${top.map(([n,c])=>esc(n)+' ('+c+')').join(' · ')}</p>`:''}
   <p class="mu" style="font-size:12px">Cuenta solo las citas marcadas como atendidas, con el valor que registraste al cobrar. La comisión usa el porcentaje de cada profesional (por defecto 60%).</p>
   <div class="acts"><button data-a="close">Cerrar</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
   $('#m').classList.add('on')}
-function repCsv(){const cols=['fecha','hora','cliente','profesional','servicios','valor','comision_pct','comision','salon'];
-  bajar(`reporte-${RM}.csv`,toCsv(cols,RD.map(c=>{const v=valor(c),pc=pctDe(c.profesional_id);return{fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,profesional:proNom(c.profesional_id),servicios:svNames(c),valor:v,comision_pct:pc,comision:Math.round(v*pc/100),salon:Math.round(v-v*pc/100)}})),'csv')}
+function repCsv(){const cols=['fecha','hora','cliente','profesional','servicios','valor','comision_pct','comision','salon','metodo'];
+  bajar(`reporte-${RM}.csv`,toCsv(cols,RD.map(c=>{const v=valor(c),pc=pctDe(c.profesional_id);return{fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,profesional:proNom(c.profesional_id),servicios:svNames(c),valor:v,comision_pct:pc,comision:Math.round(v*pc/100),salon:Math.round(v-v*pc/100),metodo:metLbl(c.metodo_pago)}})),'csv')}
 /* ---------- respaldo ---------- */
 function showResp(){let l='nunca';try{l=localStorage.getItem('sh-resp')||'nunca'}catch(e){}
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Respaldo</h3><p class="mu">Descarga una copia de tus datos y guárdala en tu correo o en Google Drive. Conviene hacerlo una vez al mes. Último respaldo: <b>${esc(l)}</b></p>
@@ -356,9 +425,22 @@ const respBanner=()=>{let l=null;try{l=localStorage.getItem('sh-resp')}catch(e){
 const workTxt=(pid,d)=>{const hs=HOR.filter(h=>h.profesional_id==pid);if(!hs.length)return'';const dow=new Date(d+'T12:00').getDay(),r=hs.filter(h=>h.dia_semana==dow);return r.length?'🕒 '+r.map(h=>h.hora_inicio.slice(0,5)+'–'+h.hora_fin.slice(0,5)).join(', '):'🕒 Día libre'};
 function noLab(pid,d){const hs=HOR.filter(h=>h.profesional_id==pid);if(!hs.length)return[];const dow=new Date(d+'T12:00').getDay(),r=hs.filter(h=>h.dia_semana==dow).map(h=>[mn(h.hora_inicio.slice(0,5)),mn(h.hora_fin.slice(0,5))]).sort((a,b)=>a[0]-b[0]),g=[];let cur=0;for(const[a,b]of r){if(a>cur)g.push([cur,a]);cur=Math.max(cur,b)}if(cur<1440)g.push([cur,1440]);return g}
 const nlHtml=(pid,ini,fin)=>noLab(pid,date).map(([a,b])=>{const s0=Math.max(a,ini),s1=Math.min(b,fin);return s1>s0?`<div class="gr" style="top:${s0-ini}px;height:${s1-s0}px">${a==0&&b==1440?'Día libre':'Fuera de horario'}</div>`:''}).join('');
+let INA=45;
+const inaMark=()=>{try{return JSON.parse(localStorage.getItem('sh-ina')||'{}')}catch(e){return{}}};
+async function showIna(){await loadCli();drawIna()}
+function drawIna(){const mk=inaMark(),lim=add(today,-INA),hoyD=new Date(today+'T12:00');
+  const L=CLI.filter(c=>c.visitas>0&&c.ultima&&c.ultima<lim).sort((a,b)=>b.ultima.localeCompare(a.ultima));
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Clientes</h3>
+  <div class="seg" style="margin-top:10px"><button data-a="cli">Todos</button><button class="on">No vuelven</button></div>
+  ${CLIERR?'<p class="msg">Falta ejecutar el SQL de clientes en Supabase.</p>':`<p class="mu">Clientes que llevan más de ${INA} días sin visitarte y no tienen una cita próxima.</p>
+  <div class="chips" style="margin:0 0 8px;padding:2px 0 8px">${[30,45,60,90].map(n=>`<button class="chip ${INA==n?'on':''}" data-a="inad" data-n="${n}">${n} días</button>`).join('')}</div>
+  ${L.length?L.map(c=>{const d=Math.floor((hoyD-new Date(c.ultima+'T12:00'))/864e5),s=mk[c.telefono];return `<div class="c" style="--pc:#d4af37"><h3><span><em style="font-size:16px">${esc(c.nombre)}</em></span><span>hace ${d} días</span></h3><p>Última visita ${c.ultima} · ${c.visitas} ${c.visitas==1?'visita':'visitas'}${c.gastado>0?' · '+money(c.gastado):''}</p><div class="acts"><button class="${s?'':'pr'}" data-a="wai" data-t="${esc(c.telefono)}">${s?'✓ Invitado el '+s+' · enviar otra vez':'💬 Invitar a volver'}</button></div></div>`}).join(''):'<p class="mu">No hay clientes en esta lista.</p>'}`}
+  <div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
 const restOf=(pid,d)=>BL.filter(b=>(!b.profesional_id||b.profesional_id==pid)&&((b.fecha&&d>=b.fecha&&d<=(b.fecha_fin||b.fecha))||(b.dia_semana!=null&&b.dia_semana==new Date(d+'T12:00').getDay())));
 
 function render(){
+  if(S&&ROL.rol!='dueno')return renderPro();
   const a=$('#app'),logo=w=>`<div class="hd"><img class="logo" src="${LOGO}" alt="S&H Centro de Belleza y Barbería"${w?` style="width:${w}px"`:''}></div>`;
   if(!S){a.innerHTML=logo(150)+`<div class="tag">AGENDA</div><div class="sh" style="border-radius:16px;margin:18px auto 0"><label>Correo<input id="em" type="email" autocomplete="username"></label><label>Contraseña<input id="pw" type="password" autocomplete="current-password"></label>${err?`<div class="msg">${esc(err)}</div>`:''}<button class="pr" style="width:100%;margin-top:14px;padding:14px" data-a="login">Entrar</button></div>`;return}
   const wk=mode=='sem',live=c=>c.estado!='cancelada';
@@ -378,7 +460,7 @@ function render(){
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
   else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
-  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button><button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="man">📲 Mañana</button><button data-a="caja">💵 Caja</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'📲 Avisos: sí':'📲 Activar avisos'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
@@ -387,7 +469,7 @@ function render(){
 
 document.addEventListener('click',async e=>{const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
   if(a=='login')return login();
-  if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}S=null;return render()}
+  if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}ROL={rol:'dueno'};PS='no';S=null;return render()}
   if(a=='nav'){const n=+b.dataset.n;date=n?add(date,n*(mode=='sem'?7:1)):today;return reload()}
   if(a=='mode'){mode=b.dataset.v;return reload()}
   if(a=='fp'){fp=b.dataset.v;return render()}
@@ -406,6 +488,18 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='bl')return showBl();
   if(a=='sbl')return saveBl();
   if(a=='dbl'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('bloqueos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showBl()}
+  if(a=='ina')return showIna();
+  if(a=='inad'){INA=+b.dataset.n;return drawIna()}
+  if(a=='wai'){const t=b.dataset.t,c=CLI.find(x=>x.telefono==t);window.open(`https://wa.me/${t}?text=${encodeURIComponent(`Hola ${(c?.nombre||'').split(' ')[0]}, hace tiempo no te vemos por ${CFG.NOMBRE} 💛 Nos encantaría consentirte de nuevo. Reserva tu cita aquí: ${CFG.RESERVA}`)}`,'_blank');const mk=inaMark();mk[t]=today;try{localStorage.setItem('sh-ina',JSON.stringify(mk))}catch(x){}return drawIna()}
+  if(a=='man')return showMan();
+  if(a=='wam'){wa(id);const mk=manMark();mk[id]=today;try{localStorage.setItem('sh-wam',JSON.stringify(mk))}catch(x){}return drawMan()}
+  if(a=='caja')return showCaja();
+  if(a=='cjn'){const n=+b.dataset.n;CJ=n?add(CJ,n):today;return showCaja()}
+  if(a=='cjcsv')return cajaCsv();
+  if(a=='ecob')return cobrar(id,'caja');
+  if(a=='push')return PS=='on'?pushOff():pushOn();
+  if(a=='dpro')return accSet(id,true);
+  if(a=='qpro')return accSet(id,false);
   if(a=='rep')return showRep();
   if(a=='rm'){const[y,m]=RM.split('-').map(Number),d=new Date(y,m-1+(+b.dataset.n),1);RM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');await repLoad();return drawRep()}
   if(a=='rv'){RV=b.dataset.v;return drawRep()}
@@ -429,7 +523,8 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id=='dt'&&t.value){date=t.value;reload()}
   if(t.id=='b_tipo'){$('#g_f').style.display=t.value=='f'?'':'none';$('#g_s').style.display=t.value=='s'?'':'none'}
   if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none';
-  if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none'});
+  if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none';
+  if(t.id=='cj_dt'&&t.value){CJ=t.value;showCaja()}});
 document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
   if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
@@ -437,7 +532,7 @@ document.addEventListener('input',e=>{const t=e.target;
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
 document.addEventListener('keydown',e=>{if(e.key=='Escape'&&$('#m').classList.contains('on'))closeM()});
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
-setInterval(async()=>{if(!S||document.hidden)return;await watch();if(!$('#m').classList.contains('on'))reload(1)},20000);
+setInterval(async()=>{if(!S||document.hidden)return;if(ROL.rol=='dueno')await watch();if(!$('#m').classList.contains('on')&&ROL.rol!='nada')reload(1)},20000);
 let DI=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();DI=e;if(S)render()});
 window.addEventListener('appinstalled',()=>{DI=null;if(S)render()});
