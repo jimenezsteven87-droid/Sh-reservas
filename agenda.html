@@ -443,7 +443,7 @@ function drawMan(){const mk=manMark();
   ${MAN.length?MAN.map(c=>{const p=pros.find(x=>x.id==c.profesional_id),s=mk[c.id]==today;return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${c.hora.slice(0,5)}</em> ${esc(c.cliente)}</span><span class="b ${c.estado}">${c.estado}</span></h3><p>${esc(svNames(c))} · ${esc(p?.nombre||'')}</p><div class="acts"><button class="${s?'':'pr'}" data-a="wam" data-id="${c.id}">${s?'✓ Enviado · reenviar':'💬 Enviar recordatorio'}</button></div></div>`}).join(''):'<p class="mu">No hay citas para mañana.</p>'}
   <div class="acts"><button data-a="close">Cerrar</button></div></div>`;$('#m').classList.add('on')}
 /* ---------- avisos al celular (push) ---------- */
-const VAPID_PUB='';
+const VAPID_PUB='BJnaBbAb4mwvmKirFPbvAHgs4W286jyrZ79b6B8upLPFXaMHgojoMz4kgbAjH9CtOAxVSs6y8FBy93KBrl7yhUU';
 const b64u=s=>{const r=atob((s+'='.repeat((4-s.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)))};
 async function pushInit(){PS='no';
   if(VAPID_PUB&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window){
