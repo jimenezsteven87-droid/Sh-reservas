@@ -401,39 +401,50 @@ function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.ho
   ...C.gastos.map(g=>({tipo:'gasto',hora:'',numero:'',detalle:g.concepto,cliente:'',total:-g.monto,propina:0,metodo:metLbl(g.metodo),estado:'ok'}))];
   bajar(`caja-${CJ}.csv`,toCsv(['tipo','hora','numero','detalle','cliente','total','propina','metodo','estado'],rows),'csv')}
 /* ---------- reportes: ventas + citas atendidas anteriores al punto de venta ---------- */
-let RM=today.slice(0,7),RV='pro',RD=null;
-async function repLoad(){const d1=RM+'-01',[y,m]=RM.split('-').map(Number),d2=RM+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
-  let vs=[],leg=[],err=false;
+let RP='mes',RA=today,RV='pro',RF='',RD=null;
+const dow1=d=>{const x=new Date(d+'T12:00'),k=(x.getDay()+6)%7;return add(d,-k)};
+function repRange(){if(RP=='dia')return[RA,RA];if(RP=='sem'){const a=dow1(RA);return[a,add(a,6)]}const[y,m]=RA.split('-').map(Number);return[RA.slice(0,7)+'-01',RA.slice(0,7)+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0')]}
+function repNav(n){if(RP=='dia')RA=add(RA,n);else if(RP=='sem')RA=add(RA,7*n);else{const[y,m]=RA.split('-').map(Number),d=new Date(y,m-1+n,1);RA=iso(d)}}
+function repTitle(){const[a,b]=repRange(),f=d=>new Date(d+'T12:00').toLocaleDateString('es',{day:'numeric',month:'short'});
+  if(RP=='dia'){const t=dl(a);return t.charAt(0).toUpperCase()+t.slice(1)}if(RP=='sem')return f(a)+' – '+f(b);const t=new Date(a+'T12:00').toLocaleDateString('es',{month:'long',year:'numeric'});return t.charAt(0).toUpperCase()+t.slice(1)}
+async function repLoad(){const[d1,d2]=repRange();let vs=[],leg=[],err=false;
   try{vs=await fetchAll(`ventas?select=*,venta_items(*)&fecha=gte.${d1}&fecha=lte.${d2}&anulada=eq.false&order=fecha,hora`)}catch(e){err=true}
   try{leg=await qCitas(`&estado=eq.atendida&fecha=gte.${d1}&fecha=lte.${d2}&order=fecha,hora,id`)}catch(e){}
   leg=leg.filter(c=>!vs.some(v=>v.cita_id==c.id));RD={vs,leg,err}}
-function repCalc(){const {vs,leg}=RD,P={},D={};
+function repCalc(){const{vs,leg}=RD,R={};
   const com=id=>{const p=pros.find(x=>x.id==id);return p&&p.comision!=null?+p.comision:60};
-  const pe=id=>P[id||'-']=P[id||'-']||{id:id||'',serv:0,prod:0,prop:0,com:0,n:0};
-  const de=f=>D[f]=D[f]||{fecha:f,ing:0,prop:0,n:0};
-  vs.forEach(v=>{const sub=+v.subtotal,f=sub>0?(+v.total)/sub:1;de(v.fecha).ing+=+v.total;de(v.fecha).prop+=+v.propina;de(v.fecha).n++;
-    (v.venta_items||[]).forEach(i=>{const net=(+i.cantidad)*(+i.precio)*f,r=pe(i.profesional_id||v.profesional_id);
-      if(i.tipo=='servicio'){r.serv+=net;r.com+=net*com(i.profesional_id||v.profesional_id)/100;r.n+=+i.cantidad}else r.prod+=net});
-    if(+v.propina>0)pe(v.profesional_id).prop+=+v.propina});
-  leg.forEach(c=>{const val=valor(c),r=pe(c.profesional_id);r.serv+=val;r.com+=val*com(c.profesional_id)/100;r.n++;de(c.fecha).ing+=val;de(c.fecha).n++});
-  const pl=Object.values(P).map(r=>({...r,serv:Math.round(r.serv),prod:Math.round(r.prod),com:Math.round(r.com),nombre:r.id?proNom(r.id)||'(profesional eliminado)':'Sin asignar'})).sort((a,b)=>(b.serv+b.prod)-(a.serv+a.prod));
-  const dl2=Object.values(D).sort((a,b)=>a.fecha.localeCompare(b.fecha));
-  const ing=dl2.reduce((a,x)=>a+x.ing,0),prop=dl2.reduce((a,x)=>a+x.prop,0),comT=pl.reduce((a,x)=>a+x.com,0);
-  return{pl,dl:dl2,ing,prop,com:comT,neto:ing-comT}}
+  const ce=(f,id)=>{const k=f+'|'+(id||'');return R[k]=R[k]||{fecha:f,id:id||'',serv:0,prod:0,prop:0,com:0,n:0}};
+  vs.forEach(v=>{const sub=+v.subtotal,f=sub>0?(+v.total)/sub:1;
+    (v.venta_items||[]).forEach(i=>{const pid=i.profesional_id||v.profesional_id,net=(+i.cantidad)*(+i.precio)*f,r=ce(v.fecha,pid);
+      if(i.tipo=='servicio'){r.serv+=net;r.com+=net*com(pid)/100;r.n+=+i.cantidad}else r.prod+=net});
+    if(+v.propina>0)ce(v.fecha,v.profesional_id).prop+=+v.propina});
+  leg.forEach(c=>{const val=valor(c),r=ce(c.fecha,c.profesional_id);r.serv+=val;r.com+=val*com(c.profesional_id)/100;r.n++});
+  const rows=Object.values(R).map(r=>({...r,ing:r.serv+r.prod,sal:r.serv+r.prod-r.com}));
+  const sum=l=>l.reduce((a,r)=>({serv:a.serv+r.serv,prod:a.prod+r.prod,prop:a.prop+r.prop,com:a.com+r.com,n:a.n+r.n,ing:a.ing+r.ing,sal:a.sal+r.sal}),{serv:0,prod:0,prop:0,com:0,n:0,ing:0,sal:0});
+  const byP={};rows.forEach(r=>(byP[r.id]=byP[r.id]||[]).push(r));
+  const pl=Object.entries(byP).map(([id,l])=>({id,nombre:id?proNom(id)||'(profesional eliminado)':'Sin asignar',...sum(l)})).sort((a,b)=>b.ing-a.ing);
+  const sel=RF?rows.filter(r=>r.id==RF):rows,byD={};sel.forEach(r=>(byD[r.fecha]=byD[r.fecha]||[]).push(r));
+  const dl2=Object.entries(byD).sort((a,b)=>a[0].localeCompare(b[0])).map(([f,l])=>({fecha:f,...sum(l)}));
+  return{pl,dl:dl2,all:sum(rows),sel:sum(sel)}}
+const pct=(a,b)=>b>0?Math.round(a*100/b)+'%':'—';
 async function showRep(){RD=null;$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');await repLoad();drawRep()}
-function drawRep(){if(!RD)return;const k=repCalc(),mes=new Date(RM+'-01T12:00').toLocaleDateString('es',{month:'long',year:'numeric'});
+function drawRep(){if(!RD)return;const k=repCalc(),T=k.all;
+  const per=[['dia','Día'],['sem','Semana'],['mes','Mes']];
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Reportes</h3>
-  <div class="row" style="margin-top:10px"><button data-a="rm" data-n="-1">‹</button><b style="flex:1;text-align:center">${esc(mes.charAt(0).toUpperCase()+mes.slice(1))}</b><button data-a="rm" data-n="1">›</button></div>
+  <div class="seg" style="margin-top:10px">${per.map(([v,n])=>`<button data-a="rp" data-v="${v}" class="${RP==v?'on':''}">${n}</button>`).join('')}</div>
+  <div class="row"><button data-a="rm" data-n="-1">‹</button><b style="flex:1;text-align:center">${esc(repTitle())}</b><button data-a="rm" data-n="1">›</button><button data-a="rm" data-n="0">Hoy</button></div>
   ${RD.err?'<p class="msg">Falta ejecutar el SQL del punto de venta en Supabase. Mientras tanto se muestran solo las citas atendidas.</p>':''}
-  <div class="stats" style="margin-top:10px"><div><b>${money(k.ing)}</b><span>ingresos</span></div><div><b>${money(k.com)}</b><span>comisiones</span></div><div><b>${money(k.neto)}</b><span>para el salón</span></div><div><b>${money(k.prop)}</b><span>propinas</span></div></div>
-  <div class="seg"><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Por día</button></div>
-  ${RV=='pro'?(k.pl.length?`<table class="tb"><tr><th>Profesional</th><th>Servicios</th><th>Productos</th><th>Comisión</th><th>Propinas</th><th>A pagar</th></tr>${k.pl.map(r=>`<tr><td>${esc(r.nombre)}</td><td>${money(r.serv)}</td><td>${money(r.prod)}</td><td>${money(r.com)}</td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td></tr>`).join('')}</table><p class="mu" style="font-size:12px">Comisión sobre servicios, ya con el descuento aplicado. Los productos no llevan comisión. “A pagar” = comisión + propinas.</p>`:'<p class="mu">No hay ventas este mes.</p>')
-   :(k.dl.length?`<table class="tb"><tr><th>Día</th><th>Ventas</th><th>Ingresos</th><th>Propinas</th></tr>${k.dl.map(r=>`<tr><td>${r.fecha.slice(8)}/${r.fecha.slice(5,7)}</td><td>${r.n}</td><td>${money(r.ing)}</td><td>${money(r.prop)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td>${k.dl.reduce((a,x)=>a+x.n,0)}</td><td><b>${money(k.ing)}</b></td><td><b>${money(k.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas este mes.</p>')}
+  <div class="stats" style="margin-top:10px"><div><b>${money(T.ing)}</b><span>ingresos</span></div><div><b>${money(T.com)}</b><span>comisiones (${pct(T.com,T.ing)})</span></div><div><b>${money(T.sal)}</b><span>para el salón (${pct(T.sal,T.ing)})</span></div><div><b>${money(T.prop)}</b><span>propinas</span></div></div>
+  <div class="seg"><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Día a día</button></div>
+  ${RV=='pro'?(k.pl.length?`<table class="tb"><tr><th>Profesional</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th><th>A pagar</th></tr>${k.pl.map(r=>`<tr><td>${esc(r.nombre)}</td><td>${money(r.ing)}</td><td>${money(r.com)}<br><small>${pct(r.com,r.ing)}</small></td><td>${money(r.sal)}<br><small>${pct(r.sal,r.ing)}</small></td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(T.ing)}</b></td><td><b>${money(T.com)}</b></td><td><b>${money(T.sal)}</b></td><td><b>${money(T.prop)}</b></td><td><b>${money(T.com+T.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>')
+   :`<label>Profesional<select id="rep_f"><option value="">Todo el equipo</option>${prosA().map(p=>`<option value="${p.id}"${RF==p.id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label>
+   ${k.dl.length?`<table class="tb"><tr><th>Día</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th></tr>${k.dl.map(r=>`<tr><td>${r.fecha.slice(8)}/${r.fecha.slice(5,7)}</td><td>${money(r.ing)}</td><td>${money(r.com)}</td><td>${money(r.sal)}</td><td>${money(r.prop)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(k.sel.ing)}</b></td><td><b>${money(k.sel.com)}</b><br><small>${pct(k.sel.com,k.sel.ing)}</small></td><td><b>${money(k.sel.sal)}</b><br><small>${pct(k.sel.sal,k.sel.ing)}</small></td><td><b>${money(k.sel.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>'}`}
+  <p class="mu" style="font-size:12px">Ingresos = servicios + productos, ya con descuento. La comisión se calcula solo sobre servicios (porcentaje de cada profesional); los productos son del salón. Las propinas son del profesional y no cuentan como ingreso del salón. “A pagar” = comisión + propinas.</p>
   <div class="acts"><button data-a="close">Cerrar</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
   $('#m').classList.add('on')}
-function repCsv(){const k=repCalc();
-  bajar(`reporte-${RM}-profesionales.csv`,toCsv(['profesional','servicios','productos','comision','propinas','a_pagar'],k.pl.map(r=>({profesional:r.nombre,servicios:r.serv,productos:r.prod,comision:r.com,propinas:r.prop,a_pagar:r.com+r.prop}))),'csv');
-  setTimeout(()=>bajar(`reporte-${RM}-dias.csv`,toCsv(['dia','ventas','ingresos','propinas'],k.dl.map(r=>({dia:r.fecha,ventas:r.n,ingresos:r.ing,propinas:r.prop}))),'csv'),500)}
+function repCsv(){const k=repCalc(),t=repTitle().replace(/[^\w]+/g,'-');
+  bajar(`reporte-${t}-profesionales.csv`,toCsv(['profesional','ingresos','comision','pct_comision','salon','pct_salon','propinas','a_pagar'],k.pl.map(r=>({profesional:r.nombre,ingresos:Math.round(r.ing),comision:Math.round(r.com),pct_comision:pct(r.com,r.ing),salon:Math.round(r.sal),pct_salon:pct(r.sal,r.ing),propinas:r.prop,a_pagar:Math.round(r.com+r.prop)}))),'csv');
+  setTimeout(()=>bajar(`reporte-${t}-dias.csv`,toCsv(['dia','ingresos','comision','salon','propinas'],k.dl.map(r=>({dia:r.fecha,ingresos:Math.round(r.ing),comision:Math.round(r.com),salon:Math.round(r.sal),propinas:r.prop}))),'csv'),500)}
 /* ---------- citas de mañana (recordatorio manual por WhatsApp) ---------- */
 const manMark=()=>{try{return JSON.parse(localStorage.getItem('sh-wam')||'{}')}catch(e){return{}}};
 async function showMan(){$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');
@@ -591,7 +602,8 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='dpro')return accSet(id,true);
   if(a=='qpro')return accSet(id,false);
   if(a=='rep')return showRep();
-  if(a=='rm'){const[y,m]=RM.split('-').map(Number),d=new Date(y,m-1+(+b.dataset.n),1);RM=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');await repLoad();return drawRep()}
+  if(a=='rm'){const n=+b.dataset.n;if(n)repNav(n);else RA=today;await repLoad();return drawRep()}
+  if(a=='rp'){RP=b.dataset.v;await repLoad();return drawRep()}
   if(a=='rv'){RV=b.dataset.v;return drawRep()}
   if(a=='rcsv')return repCsv();
   if(a=='resp')return showResp();
@@ -613,6 +625,7 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id=='b_tipo'){$('#g_f').style.display=t.value=='f'?'':'none';$('#g_s').style.display=t.value=='s'?'':'none'}
   if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none';
   if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none';
+  if(t.id=='rep_f'){RF=t.value;drawRep()}
   if(t.id=='cj_dt'&&t.value){CJ=t.value;showCaja()}
   if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
 document.addEventListener('input',e=>{const t=e.target;
