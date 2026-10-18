@@ -59,7 +59,7 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 .pi2{display:grid;grid-template-columns:64px 1fr 1fr;gap:6px;margin-top:6px}.pi2 input,.pi2 select{margin:0}
 .tbox{margin-top:12px;padding:10px 12px;border:1px solid var(--g);border-radius:12px;background:#1a1505;font-size:14px}.tbox div{display:flex;justify-content:space-between;padding:2px 0}.tbox .big{font-size:18px;font-weight:700;color:var(--g2)}
 .rtxt{margin:0;white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#fff}
-@media print{body>*:not(#m){display:none!important}#m{position:static!important;background:none!important;display:block!important}.sh{border:0!important;background:#fff!important;max-width:80mm!important;padding:0!important;overflow:visible!important}.sh>*:not(#rcp){display:none!important}.rtxt{color:#000!important;font-size:12px}}
+@media print{body>*:not(#m){display:none!important}#m{position:static!important;background:none!important;display:block!important}.sh{border:0!important;background:#fff!important;max-width:80mm!important;padding:0!important;overflow:visible!important}.sh>*:not(#rcp){display:none!important}.rtxt{color:#000!important;font-size:12px}.rtxt+.rtxt{page-break-before:always;break-before:page}}
 
 .sh.wide{max-width:780px}
 .tb{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}.tb th,.tb td{padding:9px 6px;border-bottom:1px solid var(--bd);text-align:right}.tb th:first-child,.tb td:first-child{text-align:left}.tb th{color:var(--mu);font-weight:600}
@@ -359,15 +359,24 @@ async function posSave(){posRead();const f=$('#fe'),k=posCalc();
     $('#m').classList.remove('on');CLI=[];await reload(1);await watch(true);posRecibo(id)}
   catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL del punto de venta en Supabase.':(e.status==400&&e.detail&&!/violates|constraint|syntax|column|function/i.test(e.detail)?e.detail:'No se pudo registrar la venta.')}}
 /* comprobante */
-async function posRecibo(id){try{VR=(await api(`ventas?id=eq.${id}&select=*,venta_items(*),venta_pagos(*)`))[0]}catch(e){VR=null}if(!VR){note('No se pudo abrir el comprobante.');return}drawRecibo()}
+async function posRecibo(id){try{VR=(await api(`ventas?id=eq.${id}&select=*,venta_items(*),venta_pagos(*)`))[0]}catch(e){VR=null}if(!VR){note('No se pudo abrir el comprobante.');return}RSPLIT=false;drawRecibo()}
 function reciboTxt(v){const sep='--------------------------------',it=v.venta_items||[],pg=v.venta_pagos||[],L=[`${CFG.NOMBRE} · Centro de Belleza y Barbería`,`Comprobante de venta N° ${v.numero}${v.anulada?' (ANULADO)':''}`,new Date(v.fecha+'T12:00').toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'})+' · '+v.hora.slice(0,5)];
   if(v.cliente)L.push('Cliente: '+v.cliente);const pn=proNom(v.profesional_id);if(pn)L.push('Atendió: '+pn);
   L.push(sep);it.forEach(i=>L.push((i.cantidad>1?i.cantidad+' x ':'')+i.descripcion,'   '+money(i.cantidad*i.precio)));
   L.push(sep,'Subtotal: '+money(v.subtotal));if(+v.descuento>0)L.push('Descuento: -'+money(v.descuento));L.push('Total: '+money(v.total));
   if(+v.propina>0)L.push('Propina: '+money(v.propina),'Total pagado: '+money(+v.total+ +v.propina));
   L.push('Pago: '+(pg.map(p=>metLbl(p.metodo)+' '+money(p.monto)).join(' + ')||'Sin pago'),sep,'¡Gracias por tu visita!','Comprobante interno de venta (no es factura electrónica).');return L.join('\n')}
-function drawRecibo(){const v=VR;
-  $('#m').innerHTML=`<div class="sh"><div id="rcp"><pre class="rtxt">${esc(reciboTxt(v))}</pre></div><div class="acts" style="flex-wrap:wrap"><button class="pr" data-a="rwa">💬 Enviar por WhatsApp</button><button data-a="rpr">🖨 Imprimir</button><button data-a="pos">+ Nueva venta</button>${v.anulada?'':`<button data-a="ranu" data-id="${v.id}">Anular venta</button>`}<button data-a="close">Cerrar</button></div><div class="msg" id="fe"></div></div>`;
+const reciboPids=v=>[...new Set((v.venta_items||[]).map(i=>i.profesional_id||v.profesional_id||''))];
+function reciboPro(v,pid){const sep='--------------------------------',f=+v.subtotal>0?(+v.total)/(+v.subtotal):1,it=(v.venta_items||[]).filter(i=>(i.profesional_id||v.profesional_id||'')==pid);
+  const sub=it.reduce((a,i)=>a+i.cantidad*i.precio,0),tot=Math.round(sub*f),L=[`${CFG.NOMBRE} · Centro de Belleza y Barbería`,`Comprobante N° ${v.numero} · ${pid?proNom(pid):'Sin asignar'}${v.anulada?' (ANULADO)':''}`,new Date(v.fecha+'T12:00').toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'})+' · '+v.hora.slice(0,5)];
+  if(v.cliente)L.push('Cliente: '+v.cliente);L.push('Atendió: '+(pid?proNom(pid):'—'),sep);
+  it.forEach(i=>L.push((i.cantidad>1?i.cantidad+' x ':'')+i.descripcion,'   '+money(i.cantidad*i.precio)));
+  L.push(sep,'Subtotal: '+money(sub));if(sub-tot>0)L.push('Descuento: -'+money(sub-tot));L.push('Total: '+money(tot));
+  if(+v.propina>0&&(v.profesional_id||'')==pid)L.push('Propina: '+money(v.propina));
+  L.push(sep,'Venta completa N° '+v.numero+': '+money(v.total),'¡Gracias por tu visita!','Comprobante interno de venta (no es factura electrónica).');return L.join('\n')}
+let RSPLIT=false;
+function drawRecibo(){const v=VR,multi=reciboPids(v).length>1;
+  $('#m').innerHTML=`<div class="sh"><div id="rcp">${RSPLIT&&multi?reciboPids(v).map(pid=>`<pre class="rtxt">${esc(reciboPro(v,pid))}</pre>`).join(''):`<pre class="rtxt">${esc(reciboTxt(v))}</pre>`}</div><div class="acts" style="flex-wrap:wrap"><button class="pr" data-a="rwa">💬 Enviar por WhatsApp</button><button data-a="rpr">🖨 Imprimir${RSPLIT&&multi?' todos':''}</button>${multi?`<button data-a="rsp">${RSPLIT?'Ver recibo general':'🧾 Un recibo por profesional'}</button>`:''}<button data-a="pos">+ Nueva venta</button>${v.anulada?'':`<button data-a="ranu" data-id="${v.id}">Anular venta</button>`}<button data-a="close">Cerrar</button></div><div class="msg" id="fe"></div></div>`;
   $('#m').classList.add('on')}
 /* caja */
 async function showCaja(){let vs=[],gs=[],cj=null,err=false,leg=[];
@@ -588,6 +597,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='vrc')return posRecibo(id);
   if(a=='rwa'){const t=(VR.telefono||'').replace(/\D/g,'');return window.open((t?`https://wa.me/${t}`:'https://wa.me/')+'?text='+encodeURIComponent(reciboTxt(VR)),'_blank')}
   if(a=='rpr')return window.print();
+  if(a=='rsp'){RSPLIT=!RSPLIT;return drawRecibo()}
   if(a=='ranu'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}try{await api('rpc/anular_venta',{method:'POST',body:JSON.stringify({p_venta:id,p_motivo:'Anulada desde la agenda'})});$('#m').classList.remove('on');await reload(1);note('Venta anulada.')}catch(x){$('#fe').textContent='No se pudo anular la venta.'}return}
   if(a=='capt'){const v=$('#cj_ap').value;if(v===''||+v<0)return note('Escribe la base inicial.');try{await api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({fecha:CJ,apertura:+v})});note('✅ Base guardada.')}catch(x){note('No se pudo guardar la base.')}return showCaja()}
   if(a=='gadd'){const c=$('#g_c').value.trim(),m=$('#g_m').value;if(c.length<2||m===''||+m<=0)return note('Escribe el concepto y el monto del gasto.');try{await api('gastos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:CJ,concepto:c,monto:+m,metodo:$('#g_t').value})})}catch(x){note('No se pudo guardar el gasto.')}return showCaja()}
