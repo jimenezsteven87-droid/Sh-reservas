@@ -74,6 +74,13 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 .gb small{display:block;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gb.pendiente{border-left-style:dashed}.gb.atendida{opacity:.65}
 .gr{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,#1a1505,#1a1505 6px,#241c07 6px,#241c07 12px);color:var(--g2);font-size:11px;padding:4px 6px;border-top:1px dashed var(--g);overflow:hidden;pointer-events:none}
+.head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;position:relative}
+.brand{display:flex;align-items:center;gap:12px}.brand .logo{width:64px;margin:0}.brand .tag{margin:0}
+.tools{display:flex;gap:8px;overflow:visible;margin:0;padding:0}.tools button{font-size:20px;padding:8px 14px;line-height:1}
+.menu{display:none;position:absolute;top:calc(100% - 4px);right:0;z-index:60;width:min(320px,calc(100vw - 28px));max-height:78vh;overflow:auto;background:#111;border:1px solid var(--g);border-radius:14px;padding:4px 8px 10px;box-shadow:0 14px 40px #000c}
+.menu.on{display:block}.menu .mh{color:var(--g);font-size:11px;letter-spacing:.14em;text-transform:uppercase;margin:12px 6px 4px;font-weight:700}
+.menu button{display:block;width:100%;text-align:left;margin:2px 0;padding:11px 12px;background:none;border:0;color:#fff;border-radius:10px;font-size:15px}
+.menu button:hover,.menu button:active{background:#1d1707}.menu .out{color:#ff7b6b;margin-top:8px;border-top:1px solid var(--bd);border-radius:0 0 10px 10px}
 @media(hover:hover){button:hover{filter:brightness(1.18)}.gb:hover{filter:brightness(1.25)}}
 @media(min-width:900px){
  main{max-width:1280px;padding:18px 28px 90px}
@@ -670,14 +677,24 @@ function render(){
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
   else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
-  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="man">📲 Mañana</button><button data-a="pos">🧾 Venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="imp">🖨 Impresión</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'📲 Avisos: sí':'📲 Activar avisos'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools"><button data-a="ref" aria-label="Actualizar">↻</button><button data-a="menu" aria-label="Menú" aria-expanded="false">☰</button></div>
+  <div class="menu" id="menu">
+    ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
+    <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button>
+    <div class="mh">Clientes y equipo</div><button data-a="cli">👤 Clientes</button><button data-a="man">📲 Citas de mañana</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button>
+    <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
+    <button class="out" data-a="out">Cerrar sesión</button>
+  </div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
   <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+valor(c),0))}</b><span>cobrado</span></div></div>
   ${err?`<div class="msg">${esc(err)}</div>`:''}${respBanner()}${body}<button class="pr fab" data-a="new">+</button>`}
 
-document.addEventListener('click',async e=>{const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+document.addEventListener('click',async e=>{const mu=$('#menu');
+  if(mu&&mu.classList.contains('on')&&!e.target.closest('[data-a=menu]')&&!(e.target.closest('#menu')&&!e.target.closest('button')))mu.classList.remove('on');
+  const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+  if(a=='menu'){const on=!mu.classList.contains('on');mu.classList.toggle('on',on);b.setAttribute('aria-expanded',on);return}
   if(a=='login')return login();
   if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}ROL={rol:'dueno'};PS='no';S=null;return render()}
   if(a=='nav'){const n=+b.dataset.n;date=n?add(date,n*(mode=='sem'?7:1)):today;return reload()}
