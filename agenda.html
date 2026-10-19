@@ -181,9 +181,10 @@ let ttT=null;
 function note(t){const e=$('#tt');e.textContent=t;e.style.display='block';clearTimeout(ttT);ttT=setTimeout(()=>e.style.display='none',7000)}
 const quien=l=>l.slice(0,2).map(r=>`${r.cliente} · ${r.hora.slice(0,5)}`).join(', ')+(l.length>2?` y ${l.length-2} más`:'');
 async function watch(silent){
-  let rows;try{rows=await api(`citas?select=id,estado,cliente,fecha,hora&fecha=gte.${today}&order=creada.desc&limit=300`)}catch(e){return}
+  let rows;try{rows=await api(`citas?select=id,estado,cliente,fecha,hora&fecha=gte.${today}&order=creada.desc&limit=150`)}catch(e){return false}
   const prev=snapM;snapM={};rows.forEach(r=>snapM[r.id]=r);
-  if(!prev||silent)return;
+  if(!prev||silent)return false;
+  const chg=rows.some(r=>!prev[r.id]||prev[r.id].estado!=r.estado||prev[r.id].fecha!=r.fecha||prev[r.id].hora!=r.hora);
   const nuevas=rows.filter(r=>!prev[r.id]&&r.estado!='cancelada');
   const conf=rows.filter(r=>prev[r.id]&&prev[r.id].estado=='pendiente'&&r.estado=='confirmada');
   const canc=rows.filter(r=>prev[r.id]&&prev[r.id].estado!='cancelada'&&r.estado=='cancelada');
@@ -191,7 +192,8 @@ async function watch(silent){
   if(nuevas.length){chime('nueva');msgs.push('🔔 Nueva reserva: '+quien(nuevas))}
   if(conf.length){setTimeout(()=>chime('conf'),nuevas.length?900:0);msgs.push('✅ Confirmó: '+quien(conf))}
   if(canc.length)msgs.push('❌ Canceló: '+quien(canc));
-  if(msgs.length){note(msgs.join('  ·  '));if(needTap)note('Toca la pantalla una vez para activar el sonido. '+msgs[0]);await reload(1)}}
+  if(msgs.length){note(msgs.join('  ·  '));if(needTap)note('Toca la pantalla una vez para activar el sonido. '+msgs[0])}
+  if(chg||msgs.length){await reload(1);return true}return false}
 const CAT={dama:'Dama',caballero:'Caballero',todos:'Para todos'};
 const SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo,reserva_online&order=nombre',SVQ1='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
 async function loadSv(){try{svcs=await api(SVQ)}catch(e){try{svcs=await api(SVQ1)}catch(e2){svcs=await api(SVQ0)}}}
@@ -779,7 +781,14 @@ document.addEventListener('input',e=>{const t=e.target;
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
 document.addEventListener('keydown',e=>{if(e.key=='Escape'&&$('#m').classList.contains('on'))closeM()});
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
-setInterval(async()=>{if(!S||document.hidden)return;if(ROL.rol=='dueno')await watch();if(!$('#m').classList.contains('on')&&ROL.rol!='nada')reload(1)},20000);
+/* consultas ligeras: se pregunta cada 30 s solo si cambió algo; la agenda completa se recarga solo cuando hay cambios (o cada ~5 min) */
+let tick=0,lastPoll=0;
+setInterval(async()=>{if(!S||document.hidden)return;tick++;const hr=new Date().getHours();
+  if((hr<7||hr>=22)&&Date.now()-lastPoll<3e5)return;lastPoll=Date.now();
+  const modal=$('#m').classList.contains('on');
+  if(ROL.rol=='dueno'){const c=await watch();if(!c&&!modal&&tick%10==0)reload(1)}
+  else if(ROL.rol!='nada'&&!modal&&tick%2==0)reload(1)},30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S&&ROL.rol=='dueno')watch()});
 let DI=null;
 window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();DI=e;if(S)render()});
 window.addEventListener('appinstalled',()=>{DI=null;if(S)render()});
