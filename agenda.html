@@ -59,7 +59,8 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 .pi2{display:grid;grid-template-columns:64px 1fr 1fr;gap:6px;margin-top:6px}.pi2 input,.pi2 select{margin:0}
 .tbox{margin-top:12px;padding:10px 12px;border:1px solid var(--g);border-radius:12px;background:#1a1505;font-size:14px}.tbox div{display:flex;justify-content:space-between;padding:2px 0}.tbox .big{font-size:18px;font-weight:700;color:var(--g2)}
 .rtxt{margin:0;white-space:pre-wrap;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#fff}
-@media print{body>*:not(#m){display:none!important}#m{position:static!important;background:none!important;display:block!important}.sh{border:0!important;background:#fff!important;max-width:80mm!important;padding:0!important;overflow:visible!important}.sh>*:not(#rcp){display:none!important}.rtxt{color:#000!important;font-size:12px}.rtxt+.rtxt{page-break-before:always;break-before:page}}
+@page{margin:2mm}
+@media print{body>*:not(#m){display:none!important}#m{position:static!important;background:none!important;display:block!important}.sh{border:0!important;background:#fff!important;max-width:var(--paper,80mm)!important;padding:0!important;overflow:visible!important}.sh>*:not(#rcp){display:none!important}.rtxt{color:#000!important;font-size:var(--pfs,12px)}.rtxt+.rtxt{page-break-before:always;break-before:page}}
 
 .sh.wide{max-width:780px}
 .tb{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}.tb th,.tb td{padding:9px 6px;border-bottom:1px solid var(--bd);text-align:right}.tb th:first-child,.tb td:first-child{text-align:left}.tb th{color:var(--mu);font-weight:600}
@@ -318,7 +319,7 @@ let POS=null,VR=null,CAJ={ventas:[],gastos:[],caja:null,leg:[],err:false};
 const metSel=(id,sel)=>`<select id="${id}">${METODOS.map(([k,n])=>`<option value="${k}"${sel==k?' selected':''}>${n}</option>`).join('')}</select>`;
 function posCalc(){const sub=POS.items.reduce((a,i)=>a+(+i.cantidad||0)*(+i.precio||0),0);let d=+POS.desc||0;if(POS.dtipo=='%')d=Math.round(sub*Math.min(d,100)/100);d=Math.min(d,sub);
   const tot=sub-d,prop=+POS.prop||0,cobrar=tot+prop,pag=POS.pagos.reduce((a,p)=>a+(+p.v||0),0);return{sub,d,tot,prop,cobrar,pag,dif:cobrar-pag}}
-async function posOpen(o){o=o||{};await ensureCli();const c=o.cita?cget(o.cita):null;
+async function posOpen(o){o=o||{};await ensureCli();await ensureProd();const c=o.cita?cget(o.cita):null;
   POS={cita:c?c.id:null,cli:c?c.cliente:'',tel:c?(c.telefono||''):'',pro:c?c.profesional_id:(fp||prosA()[0]?.id||''),items:[],desc:'',dtipo:'$',prop:'',pagos:[{m:'efectivo',v:''}],nota:''};
   if(c)POS.items=svIds(c).map(id=>{const s=svcs.find(x=>x.id==id);return{tipo:'servicio',servicio_id:id,descripcion:s?.nombre||'Servicio',cantidad:1,precio:s&&s.precio>0?s.precio:'',pro:c.profesional_id}});
   posRender()}
@@ -337,7 +338,8 @@ function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().cobrar||'';
   <label>Atendido por<select id="pos_pro">${po(P.pro)}</select></label>
   <div class="dh">Servicios y productos</div>
   ${P.items.map((i,n)=>`<div class="pi"><div class="pi1"><input id="pi_${n}_d" placeholder="${i.tipo=='producto'?'Producto o concepto':'Servicio'}" value="${esc(i.descripcion)}"><button data-a="pid" data-i="${n}" aria-label="Quitar">✕</button></div><div class="pi2"><input id="pi_${n}_q" type="number" min="1" step="1" inputmode="numeric" value="${i.cantidad}"><input id="pi_${n}_p" type="number" min="0" step="500" inputmode="numeric" placeholder="Precio" value="${i.precio}"><select id="pi_${n}_r">${po(i.pro||P.pro)}</select></div></div>`).join('')||'<p class="mu">Agrega al menos un servicio o producto.</p>'}
-  <div class="row" style="margin-top:8px"><select id="pos_add" style="flex:2"><option value="">➕ Agregar servicio…</option>${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)}${s.precio>0?' · '+money(s.precio):''}</option>`).join('')}</select><button data-a="pprod" style="flex:1">+ Producto</button></div>
+  <div class="row" style="margin-top:8px"><select id="pos_add" style="flex:2"><option value="">➕ Agregar servicio…</option>${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)}${s.precio>0?' · '+money(s.precio):''}</option>`).join('')}</select></div>
+  <div class="row" style="margin-top:8px"><select id="pos_addp" style="flex:2"><option value="">📦 Agregar producto…</option>${PROD.filter(x=>x.activo!==false).map(x=>`<option value="${x.id}">${esc(x.nombre)}${x.precio>0?' · '+money(x.precio):''}${x.stock!=null?' · quedan '+x.stock:''}</option>`).join('')}</select><button data-a="pprod" style="flex:1">+ Otro</button></div>
   <div class="row2"><label>Descuento<div class="row" style="margin-top:8px"><input id="pos_desc" type="number" min="0" inputmode="numeric" value="${P.desc}" style="margin:0"><select id="pos_dtipo" style="margin:0;max-width:72px"><option value="$"${P.dtipo=='$'?' selected':''}>$</option><option value="%"${P.dtipo=='%'?' selected':''}>%</option></select></div></label><label>Propina<input id="pos_prop" type="number" min="0" step="500" inputmode="numeric" value="${P.prop}"></label></div>
   <div class="tbox" id="pos_tot"></div>
   <div class="dh">Pago</div>
@@ -352,11 +354,13 @@ async function posSave(){posRead();const f=$('#fe'),k=posCalc();
     if(i.precio===''||+i.precio<0){f.textContent=`Escribe el precio de "${i.descripcion}".`;return}if(!(+i.cantidad>=1)){f.textContent='La cantidad debe ser 1 o más.';return}}
   if(POS.pagos.some(p=>+p.v<0)){f.textContent='Los montos del pago no pueden ser negativos.';return}
   if(k.cobrar>0&&k.dif!=0){f.textContent=k.dif>0?'El pago no cubre el total a cobrar.':'El pago es mayor al total a cobrar.';return}
-  const items=POS.items.map(i=>({tipo:i.tipo,servicio_id:i.servicio_id||null,descripcion:String(i.descripcion).trim(),cantidad:+i.cantidad,precio:+i.precio,profesional_id:i.pro||POS.pro||null}));
+  const items=POS.items.map(i=>({tipo:i.tipo,servicio_id:i.servicio_id||null,descripcion:String(i.descripcion).trim(),cantidad:+i.cantidad,precio:+i.precio,profesional_id:i.pro||POS.pro||null,producto_id:i.producto_id||null}));
+  const need={};items.forEach(i=>{if(i.producto_id)need[i.producto_id]=(need[i.producto_id]||0)+i.cantidad});
+  for(const[pid,q]of Object.entries(need)){const pr=PROD.find(x=>x.id==pid);if(pr&&pr.stock!=null&&pr.stock<q){f.textContent=`No hay suficiente stock de ${pr.nombre}: quedan ${pr.stock}.`;return}}
   const pagos=POS.pagos.filter(p=>+p.v>0).map(p=>({metodo:p.m,monto:+p.v}));
   let tel=(POS.tel||'').replace(/\D/g,'');if(tel.length==10&&tel[0]=='3')tel='57'+tel;
   try{const id=await api('rpc/registrar_venta',{method:'POST',body:JSON.stringify({p_cita:POS.cita,p_cliente:POS.cli,p_telefono:tel,p_pro:POS.pro||null,p_items:items,p_descuento:k.d,p_propina:k.prop,p_pagos:pagos,p_nota:POS.nota})});
-    $('#m').classList.remove('on');CLI=[];await reload(1);await watch(true);posRecibo(id)}
+    $('#m').classList.remove('on');CLI=[];PROD=[];await reload(1);await watch(true);await posRecibo(id);await autoPrint()}
   catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL del punto de venta en Supabase.':(e.status==400&&e.detail&&!/violates|constraint|syntax|column|function/i.test(e.detail)?e.detail:'No se pudo registrar la venta.')}}
 /* comprobante */
 async function posRecibo(id){try{VR=(await api(`ventas?id=eq.${id}&select=*,venta_items(*),venta_pagos(*)`))[0]}catch(e){VR=null}if(!VR){note('No se pudo abrir el comprobante.');return}RSPLIT=false;drawRecibo()}
@@ -386,7 +390,7 @@ async function showCaja(){let vs=[],gs=[],cj=null,err=false,leg=[];
 function drawCaja(){const C=CAJ,vs=C.ventas.filter(v=>!v.anulada),mt={};
   vs.forEach(v=>(v.venta_pagos||[]).forEach(p=>mt[p.metodo]=(mt[p.metodo]||0)+ +p.monto));C.leg.forEach(c=>{const k=c.metodo_pago||'sin';mt[k]=(mt[k]||0)+valor(c)});
   const venta=vs.reduce((a,v)=>a+ +v.total,0)+C.leg.reduce((a,c)=>a+valor(c),0),prop=vs.reduce((a,v)=>a+ +v.propina,0),gT=C.gastos.reduce((a,g)=>a+ +g.monto,0),gE=C.gastos.filter(g=>g.metodo=='efectivo').reduce((a,g)=>a+ +g.monto,0);
-  const ap=+(C.caja?.apertura||0),esp=ap+(mt.efectivo||0)-gE,con=C.caja?.contado,dif=con!=null?+con-esp:null;
+  const ap=+(C.caja?.apertura||0),esp=ap+(mt.efectivo||0)-gE,con=C.caja?.contado,dif=con!=null?+con-esp:null;C.calc={venta,esp};
   const filas=[...METODOS.map(x=>x[0]),'sin'].filter(k=>mt[k]!=null).map(k=>`<tr><td>${k=='sin'?'Sin método registrado':metLbl(k)}</td><td>${money(mt[k])}</td></tr>`).join('');
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Caja del día</h3>
   <div class="row" style="margin-top:10px"><button data-a="cjn" data-n="-1">‹</button><input type="date" id="cj_dt" value="${CJ}"><button data-a="cjn" data-n="1">›</button><button data-a="cjn" data-n="0">Hoy</button></div>
@@ -403,12 +407,91 @@ function drawCaja(){const C=CAJ,vs=C.ventas.filter(v=>!v.anulada),mt={};
   ${C.err?'':`<div class="dh">Cierre de caja</div><p class="mu">Efectivo esperado: <b>${money(esp)}</b> (base ${money(ap)} + efectivo cobrado ${money(mt.efectivo||0)} − gastos en efectivo ${money(gE)})</p>
   <div class="row"><input id="cj_con" type="number" min="0" inputmode="numeric" placeholder="Efectivo contado en caja" value="${con!=null?con:''}" style="margin:0"><button class="pr" data-a="ccie">Cerrar caja</button></div>
   ${dif!=null?`<p style="font-weight:700;color:${dif==0?'#6fcf97':'#ff7b6b'}">${dif==0?'Caja cuadrada ✓':(dif>0?'Sobrante: ':'Faltante: ')+money(Math.abs(dif))}${C.caja.cerrada_at?' · cerrada':''}</p>`:''}`}
-  <div class="acts"><button data-a="close">Cerrar</button><button data-a="pos">🧾 Nueva venta</button><button data-a="cjcsv">Descargar para Excel</button></div></div>`;
+  <div class="acts"><button data-a="close">Cerrar</button><button data-a="pos">🧾 Nueva venta</button><button data-a="hist">📅 Cierres</button><button data-a="cjcsv">Descargar para Excel</button></div></div>`;
   $('#m').classList.add('on')}
 function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.hora.slice(0,5),numero:v.numero,detalle:(v.venta_items||[]).map(i=>i.descripcion).join(' + '),cliente:v.cliente||'',total:v.total,propina:v.propina,metodo:(v.venta_pagos||[]).map(p=>metLbl(p.metodo)+' '+p.monto).join(' + '),estado:v.anulada?'anulada':'ok'})),
   ...C.leg.map(c=>({tipo:'cita sin comprobante',hora:c.hora.slice(0,5),numero:'',detalle:svNames(c),cliente:c.cliente,total:valor(c),propina:0,metodo:metLbl(c.metodo_pago),estado:'ok'})),
   ...C.gastos.map(g=>({tipo:'gasto',hora:'',numero:'',detalle:g.concepto,cliente:'',total:-g.monto,propina:0,metodo:metLbl(g.metodo),estado:'ok'}))];
   bajar(`caja-${CJ}.csv`,toCsv(['tipo','hora','numero','detalle','cliente','total','propina','metodo','estado'],rows),'csv')}
+
+/* ---------- impresión: papel y comprobante automático ---------- */
+const getLS=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}};
+const setLS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+function applyPaper(){const w=getLS('sh-pap','80'),r=document.documentElement.style;r.setProperty('--paper',w+'mm');r.setProperty('--pfs',w=='58'?'10px':'12px')}
+applyPaper();
+function showImp(){const pap=getLS('sh-pap','80'),ap=getLS('sh-ap','0'),aps=getLS('sh-aps','g');
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Impresión del comprobante</h3>
+  <p class="mu">Esta configuración se guarda en este equipo (cada computador o celular tiene la suya).</p>
+  <label>Ancho del papel<select id="imp_pap"><option value="80"${pap=='80'?' selected':''}>80 mm (lo más común)</option><option value="58"${pap=='58'?' selected':''}>58 mm</option></select></label>
+  <label>Al cobrar una venta<select id="imp_ap"><option value="0"${ap=='0'?' selected':''}>Solo mostrar el comprobante</option><option value="1"${ap=='1'?' selected':''}>Imprimirlo automáticamente</option></select></label>
+  <label>Si la venta tuvo varios profesionales<select id="imp_aps"><option value="g"${aps=='g'?' selected':''}>Un solo comprobante general</option><option value="gp"${aps=='gp'?' selected':''}>General + uno por profesional</option><option value="p"${aps=='p'?' selected':''}>Solo uno por profesional</option></select></label>
+  <p class="mu" style="font-size:12px">Para que imprima sin preguntar, abre Chrome con la opción <b>--kiosk-printing</b> y deja la térmica como impresora predeterminada. El cajón monedero se abre solo cuando la impresora recibe el comprobante, si está conectado a ella y activado en el driver.</p>
+  <div id="rcp" style="display:none"><pre class="rtxt">${esc(CFG.NOMBRE+' · Prueba de impresión\n--------------------------------\nSi lees esto completo, el papel\nestá bien configurado.\n--------------------------------')}</pre></div>
+  <div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="impt">🖨 Imprimir prueba</button></div></div>`;
+  $('#m').classList.add('on')}
+function impTest(){const r=$('#rcp');r.style.display='block';window.print();setTimeout(()=>{r.style.display='none'},400)}
+const esperar=ms=>new Promise(r=>setTimeout(r,ms));
+async function autoPrint(){if(getLS('sh-ap','0')!='1'||!VR)return;const modo=getLS('sh-aps','g'),multi=reciboPids(VR).length>1;
+  await esperar(350);
+  if(!multi||modo!='p'){RSPLIT=false;drawRecibo();await esperar(150);window.print()}
+  if(multi&&modo!='g'){RSPLIT=true;drawRecibo();await esperar(350);window.print();RSPLIT=false;drawRecibo()}}
+/* ---------- productos e inventario ---------- */
+let PROD=[],PRODERR=false;
+async function loadProd(){PRODERR=false;try{PROD=await api('productos?select=*&order=nombre')}catch(e){PROD=[];PRODERR=true}}
+async function ensureProd(){if(!PROD.length&&!PRODERR)await loadProd()}
+const stBajo=p=>p.stock!=null&&p.stock<=p.stock_min;
+async function showProd(){await loadProd();drawProd()}
+function drawProd(){const act=PROD.filter(p=>p.activo!==false),oc=PROD.filter(p=>p.activo===false),bajos=act.filter(stBajo);
+  const row=p=>`<div class="c" style="--pc:${stBajo(p)?'#ff7b6b':'#d4af37'};${p.activo===false?'opacity:.5':''}"><h3><span><em style="font-size:16px">${esc(p.nombre)}</em></span><span>${money(p.precio)}</span></h3><p>${p.stock==null?'Sin control de inventario':`<b style="color:${stBajo(p)?'#ff7b6b':'var(--g2)'}">${p.stock} en stock</b>${stBajo(p)?' · ¡stock bajo!':''}`}</p><div class="acts">${p.stock!=null?`<button class="pr" data-a="aprod" data-id="${p.id}">+ Entrada / salida</button>`:''}<button data-a="eprod" data-id="${p.id}">Editar</button></div></div>`;
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Productos e inventario</h3>
+  ${PRODERR?'<p class="msg">Falta ejecutar el SQL de productos (caja-y-productos.sql) en Supabase.</p>':`${bajos.length?`<div class="rest" style="margin-top:10px">⚠ Stock bajo: ${bajos.map(p=>esc(p.nombre)+' ('+p.stock+')').join(', ')}</div>`:''}
+  ${act.length?act.map(row).join(''):'<p class="mu">Aún no tienes productos. Agrega el primero.</p>'}
+  ${oc.length?'<div class="dh">Ocultos</div>'+oc.map(row).join(''):''}`}
+  <div class="acts"><button data-a="close">Cerrar</button>${PRODERR?'':'<button class="pr" data-a="nprod">+ Nuevo producto</button>'}</div></div>`;
+  $('#m').classList.add('on')}
+function formProd(id){const p=PROD.find(x=>x.id==id)||{nombre:'',precio:'',stock:0,stock_min:0,activo:true},ctl=p.stock!=null||!id;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar producto':'Nuevo producto'}</h3>
+  <label>Nombre<input id="p_nom" value="${esc(p.nombre)}"></label>
+  <label>Precio de venta<input id="p_pre" type="number" min="0" inputmode="numeric" value="${p.precio}"></label>
+  <label>Inventario<select id="p_ctl"><option value="1"${ctl?' selected':''}>Controlar cuántos quedan</option><option value="0"${ctl?'':' selected'}>No controlar</option></select></label>
+  <div id="g_stk" style="display:${ctl?'block':'none'}"><label>Cantidad en stock<input id="p_stk" type="number" min="0" inputmode="numeric" value="${p.stock??0}"></label><label>Avisar cuando queden…<input id="p_min" type="number" min="0" inputmode="numeric" value="${p.stock_min||0}"></label></div>
+  <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no se vende)</option></select></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="prod">← Volver</button><button class="pr" data-a="sprod" data-id="${id||''}">Guardar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function saveProd(id){const f=$('#fe'),nom=$('#p_nom').value.trim(),pre=$('#p_pre').value,ctl=$('#p_ctl').value=='1';
+  if(nom.length<2){f.textContent='Escribe el nombre.';return}if(pre===''||+pre<0){f.textContent='Escribe el precio.';return}
+  const o={nombre:nom,precio:+pre,stock:ctl?Math.max(0,Math.round(+$('#p_stk').value||0)):null,stock_min:ctl?Math.max(0,Math.round(+$('#p_min').value||0)):0,activo:$('#p_act').value=='1'};
+  try{await api(id?'productos?id=eq.'+id:'productos',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await showProd()}
+  catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL de productos en Supabase.':(e.detail||'No se pudo guardar.')}}
+function formEnt(id){const p=PROD.find(x=>x.id==id);if(!p)return;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(p.nombre)}</h3><p class="mu">Ahora hay <b>${p.stock}</b> en stock.</p>
+  <label>Movimiento<select id="e_tipo"><option value="1">Entrada (compra, reposición)</option><option value="-1">Salida (pérdida, uso interno, daño)</option></select></label>
+  <label>Cantidad<input id="e_cant" type="number" min="1" inputmode="numeric"></label>
+  <label>Nota (opcional)<input id="e_mot" placeholder="Ej. compra a proveedor"></label>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="prod">← Volver</button><button class="pr" data-a="sent" data-id="${id}">Guardar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function saveEnt(id){const f=$('#fe'),q=Math.round(+$('#e_cant').value||0),s=+$('#e_tipo').value;
+  if(q<1){f.textContent='Escribe la cantidad.';return}
+  try{await api('rpc/ajustar_stock',{method:'POST',body:JSON.stringify({p_producto:id,p_cant:q*s,p_motivo:$('#e_mot').value.trim()||(s>0?'Entrada':'Salida')})});await showProd()}
+  catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL de productos en Supabase.':(e.detail||'No se pudo guardar.')}}
+/* ---------- historial de cierres de caja ---------- */
+let HM=today.slice(0,7),HD=null;
+async function histLoad(){const[y,m]=HM.split('-').map(Number),d1=HM+'-01',d2=HM+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');let cj=[],vs=[],err=false;
+  try{[cj,vs]=await Promise.all([fetchAll(`cajas?select=*&fecha=gte.${d1}&fecha=lte.${d2}&order=fecha`),fetchAll(`ventas?select=fecha&fecha=gte.${d1}&fecha=lte.${d2}&anulada=eq.false`)])}catch(e){err=true}
+  HD={cj:cj.filter(c=>c.contado!=null),dias:[...new Set(vs.map(v=>v.fecha))],err}}
+async function showHist(){HD=null;$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');await histLoad();drawHist()}
+const histDif=c=>c.esperado!=null?+c.contado-+c.esperado:null;
+function drawHist(){if(!HD)return;const cerr=new Set(HD.cj.map(c=>c.fecha)),pend=HD.dias.filter(d=>!cerr.has(d)&&d<today).sort(),
+  tot=HD.cj.reduce((a,c)=>a+(histDif(c)||0),0),t=new Date(HM+'-01T12:00').toLocaleDateString('es',{month:'long',year:'numeric'}),dd=f=>f.slice(8)+'/'+f.slice(5,7);
+  const col=d=>d==null?'inherit':d==0?'#6fcf97':'#ff7b6b';
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Cierres de caja</h3>
+  <div class="row" style="margin-top:10px"><button data-a="hm" data-n="-1">‹</button><b style="flex:1;text-align:center">${esc(t.charAt(0).toUpperCase()+t.slice(1))}</b><button data-a="hm" data-n="1">›</button><button data-a="hm" data-n="0">Hoy</button></div>
+  ${HD.err?'<p class="msg">Falta ejecutar el SQL de caja en Supabase.</p>':''}
+  ${pend.length?`<div class="rest" style="margin-top:10px">⚠ Días con ventas sin cierre de caja: ${pend.map(d=>`<button data-a="cjd" data-d="${d}" style="padding:2px 8px;margin:2px">${dd(d)}</button>`).join('')}</div>`:''}
+  ${HD.cj.length?`<table class="tb"><tr><th>Día</th><th>Esperado</th><th>Contado</th><th>Diferencia</th></tr>${HD.cj.map(c=>{const d=histDif(c);return `<tr data-a="cjd" data-d="${c.fecha}" style="cursor:pointer"><td>${dd(c.fecha)}</td><td>${c.esperado!=null?money(c.esperado):'—'}</td><td>${money(c.contado)}</td><td style="color:${col(d)}">${d==null?'—':d==0?'Cuadrada ✓':(d>0?'+':'−')+money(Math.abs(d)).replace('-','')}</td></tr>`}).join('')}<tr><td><b>Total</b></td><td></td><td></td><td style="color:${col(tot)}"><b>${tot==0?'$0':(tot>0?'+':'−')+money(Math.abs(tot))}</b></td></tr></table><p class="mu" style="font-size:12px">Diferencia = efectivo contado − efectivo esperado. Toca un día para abrir su caja. Los cierres anteriores a esta función no guardan el “esperado”.</p>`:'<p class="mu">No hay cierres de caja este mes.</p>'}
+  <div class="acts"><button data-a="caja">← Caja</button><button data-a="close">Cerrar</button><button data-a="hcsv">Descargar para Excel</button></div></div>`;
+  $('#m').classList.add('on')}
+function histCsv(){bajar(`cierres-${HM}.csv`,toCsv(['dia','apertura','esperado','contado','diferencia'],HD.cj.map(c=>({dia:c.fecha,apertura:c.apertura,esperado:c.esperado==null?'':c.esperado,contado:c.contado,diferencia:histDif(c)==null?'':histDif(c)}))),'csv')}
 /* ---------- reportes: ventas + citas atendidas anteriores al punto de venta ---------- */
 let RP='mes',RA=today,RV='pro',RF='',RD=null;
 const dow1=d=>{const x=new Date(d+'T12:00'),k=(x.getDay()+6)%7;return add(d,-k)};
@@ -535,7 +618,8 @@ async function respaldo(k){const f=$('#fe');f.textContent='Preparando la descarg
   try{
     if(k=='rjson'){const [ci,se,pr,bl,ho,no]=await Promise.all([qCitas('&order=fecha,hora,id'),fetchAll('servicios?select=*&order=id'),fetchAll('profesionales?select=*&order=id'),fetchAll('bloqueos?select=*&order=id'),fetchAll('horarios?select=*&order=id').catch(()=>[]),fetchAll('clientes_notas?select=*&order=telefono').catch(()=>[])]);
       const [ve,ga,ca]=await Promise.all([fetchAll('ventas?select=*,venta_items(*),venta_pagos(*)&order=id').catch(()=>[]),fetchAll('gastos?select=*&order=id').catch(()=>[]),fetchAll('cajas?select=*&order=fecha').catch(()=>[])]);
-      bajar(`respaldo-sh-${today}.json`,JSON.stringify({creado:new Date().toISOString(),citas:ci,servicios:se,profesionales:pr,bloqueos:bl,horarios:ho,clientes_notas:no,ventas:ve,gastos:ga,cajas:ca},null,1),'json')}
+      const [pd,sm]=await Promise.all([fetchAll('productos?select=*&order=nombre').catch(()=>[]),fetchAll('stock_mov?select=*&order=creado').catch(()=>[])]);
+      bajar(`respaldo-sh-${today}.json`,JSON.stringify({creado:new Date().toISOString(),productos:pd,stock_mov:sm,citas:ci,servicios:se,profesionales:pr,bloqueos:bl,horarios:ho,clientes_notas:no,ventas:ve,gastos:ga,cajas:ca},null,1),'json')}
     else if(k=='rcitas'){const ci=await qCitas('&order=fecha,hora,id');
       bajar(`citas-sh-${today}.csv`,toCsv(['fecha','hora','cliente','telefono','profesional','servicios','duracion_min','estado','valor','notas'],ci.map(c=>({fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,telefono:c.telefono,profesional:proNom(c.profesional_id),servicios:svNames(c),duracion_min:c.dur_min,estado:c.estado,valor:c.estado=='atendida'?valor(c):'',notas:c.notas}))),'csv')}
     else{await loadCli();if(CLIERR)throw new Error('cli');
@@ -584,7 +668,7 @@ function render(){
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
   else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
-  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="man">📲 Mañana</button><button data-a="pos">🧾 Venta</button><button data-a="caja">💵 Caja</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'📲 Avisos: sí':'📲 Activar avisos'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools">${DI?'<button class="pr" data-a="inst">📲 Instalar app</button>':''}<button data-a="cli">👤 Clientes</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="man">📲 Mañana</button><button data-a="pos">🧾 Venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="imp">🖨 Impresión</button><button data-a="bl">☕ Descansos</button><button data-a="rep">📊 Reportes</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'📲 Avisos: sí':'📲 Activar avisos'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido':'🔕 Silencio'}</button><button data-a="ref">↻</button><button data-a="out">Salir</button></div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
   <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
@@ -616,6 +700,18 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='inad'){INA=+b.dataset.n;return drawIna()}
   if(a=='wai'){const t=b.dataset.t,c=CLI.find(x=>x.telefono==t);window.open(`https://wa.me/${t}?text=${encodeURIComponent(`Hola ${(c?.nombre||'').split(' ')[0]}, hace tiempo no te vemos por ${CFG.NOMBRE} 💛 Nos encantaría consentirte de nuevo. Reserva tu cita aquí: ${CFG.RESERVA}`)}`,'_blank');const mk=inaMark();mk[t]=today;try{localStorage.setItem('sh-ina',JSON.stringify(mk))}catch(x){}return drawIna()}
   if(a=='pos')return posOpen();
+  if(a=='prod')return showProd();
+  if(a=='nprod')return formProd();
+  if(a=='eprod')return formProd(id);
+  if(a=='sprod')return saveProd(id);
+  if(a=='aprod')return formEnt(id);
+  if(a=='sent')return saveEnt(id);
+  if(a=='hist')return showHist();
+  if(a=='hm'){const n=+b.dataset.n,[y,m]=HM.split('-').map(Number);HM=n?iso(new Date(y,m-1+n,1)).slice(0,7):today.slice(0,7);await histLoad();return drawHist()}
+  if(a=='cjd'){CJ=b.dataset.d;return showCaja()}
+  if(a=='hcsv')return histCsv();
+  if(a=='imp')return showImp();
+  if(a=='impt')return impTest();
   if(a=='pid'){posRead();POS.items.splice(+b.dataset.i,1);return posRender()}
   if(a=='pprod'){posRead();POS.items.push({tipo:'producto',servicio_id:null,descripcion:'',cantidad:1,precio:'',pro:''});return posRender()}
   if(a=='pga'){posRead();POS.pagos.push({m:'efectivo',v:''});return posRender()}
@@ -629,7 +725,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('button,[da
   if(a=='capt'){const v=$('#cj_ap').value;if(v===''||+v<0)return note('Escribe la base inicial.');try{await api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({fecha:CJ,apertura:+v})});note('✅ Base guardada.')}catch(x){note('No se pudo guardar la base.')}return showCaja()}
   if(a=='gadd'){const c=$('#g_c').value.trim(),m=$('#g_m').value;if(c.length<2||m===''||+m<=0)return note('Escribe el concepto y el monto del gasto.');try{await api('gastos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:CJ,concepto:c,monto:+m,metodo:$('#g_t').value})})}catch(x){note('No se pudo guardar el gasto.')}return showCaja()}
   if(a=='gdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('gastos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showCaja()}
-  if(a=='ccie'){const v=$('#cj_con').value;if(v===''||+v<0)return note('Escribe el efectivo contado.');try{await api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({fecha:CJ,apertura:+(CAJ.caja?.apertura||0),contado:+v,cerrada_at:new Date().toISOString()})});note('✅ Caja cerrada.')}catch(x){note('No se pudo cerrar la caja.')}return showCaja()}
+  if(a=='ccie'){const v=$('#cj_con').value;if(v===''||+v<0)return note('Escribe el efectivo contado.');const cb={fecha:CJ,apertura:+(CAJ.caja?.apertura||0),contado:+v,cerrada_at:new Date().toISOString()},post=b=>api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(b)});try{try{await post({...cb,esperado:Math.round(CAJ.calc?.esp||0),ventas:Math.round(CAJ.calc?.venta||0)})}catch(e2){await post(cb)}note('✅ Caja cerrada.')}catch(x){note('No se pudo cerrar la caja.')}return showCaja()}
   if(a=='man')return showMan();
   if(a=='wam'){wa(id);const mk=manMark();mk[id]=today;try{localStorage.setItem('sh-wam',JSON.stringify(mk))}catch(x){}return drawMan()}
   if(a=='caja')return showCaja();
@@ -668,12 +764,16 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id=='b_todo')$('#g_h').style.display=t.value=='0'?'':'none';
   if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none';
   if(t.id=='rep_f'){RF=t.value;drawRep()}
+  if(t.id=='p_ctl')$('#g_stk').style.display=t.value=='1'?'':'none';
+  if(t.id=='imp_pap'){setLS('sh-pap',t.value);applyPaper()}
+  if(t.id=='imp_ap')setLS('sh-ap',t.value);
+  if(t.id=='imp_aps')setLS('sh-aps',t.value);
   if(t.id=='cj_dt'&&t.value){CJ=t.value;showCaja()}
-  if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
+  if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro});posRender()}}else if(t.id=='pos_addp'){if(t.value){posRead();const x=PROD.find(y=>y.id==t.value);if(x)POS.items.push({tipo:'producto',servicio_id:null,producto_id:x.id,descripcion:x.nombre,cantidad:1,precio:x.precio>0?x.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
 document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
   if(t.id=='pos_cli'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#pos_tel');if(m&&p&&!p.value)p.value=m.telefono}
-  if(/^(pi_|pg_|pos_)/.test(t.id)&&t.id!='pos_add')posInput(t);
+  if(/^(pi_|pg_|pos_)/.test(t.id)&&t.id!='pos_add'&&t.id!='pos_addp')posInput(t);
   if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
   if(t.id=='f_telefono'){let d=t.value.replace(/\D/g,'');if(d.length==10&&d[0]=='3')d='57'+d;const m=CLI.find(x=>x.telefono==d),n=$('#f_cliente');if(m&&n&&!n.value)n.value=m.nombre}});
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
