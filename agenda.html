@@ -506,7 +506,7 @@ function formProd(id){const p=PROD.find(x=>x.id==id)||{nombre:'',precio:'',stock
   <label>Inventario<select id="p_ctl"><option value="1"${ctl?' selected':''}>Controlar cuántos quedan</option><option value="0"${ctl?'':' selected'}>No controlar</option></select></label>
   <div id="g_stk" style="display:${ctl?'block':'none'}"><label>Cantidad en stock<input id="p_stk" type="number" min="0" inputmode="numeric" value="${p.stock??0}"></label><label>Avisar cuando queden…<input id="p_min" type="number" min="0" inputmode="numeric" value="${p.stock_min||0}"></label></div>
   <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no se vende)</option></select></label>
-  <div class="msg" id="fe"></div><div class="acts"><button data-a="prod">← Volver</button><button class="pr" data-a="sprod" data-id="${id||''}">Guardar</button></div></div>`;
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="prod">← Volver</button>${id?`<button data-a="dprod" data-id="${id}">Eliminar</button>`:''}<button class="pr" data-a="sprod" data-id="${id||''}">Guardar</button></div>${id?'<p class="mu" style="font-size:12px">Al eliminarlo, las ventas anteriores se conservan con su nombre y precio. Si solo quieres que no se venda más, ponlo en “Oculto”.</p>':''}</div>`;
   $('#m').classList.add('on')}
 async function saveProd(id){const f=$('#fe'),nom=$('#p_nom').value.trim(),pre=$('#p_pre').value,ctl=$('#p_ctl').value=='1';
   if(nom.length<2){f.textContent='Escribe el nombre.';return}if(pre===''||+pre<0){f.textContent='Escribe el precio.';return}
@@ -765,6 +765,7 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='nprod')return formProd();
   if(a=='eprod')return formProd(id);
   if(a=='sprod')return saveProd(id);
+  if(a=='dprod'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}try{await api('productos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}});PROD=PROD.filter(x=>x.id!=id);note('Producto eliminado.');return showProd()}catch(x){$('#fe').textContent='No se pudo eliminar el producto.'}return}
   if(a=='aprod')return formEnt(id);
   if(a=='sent')return saveEnt(id);
   if(a=='hist')return showHist();
