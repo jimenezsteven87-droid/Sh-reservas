@@ -123,7 +123,7 @@ async function login(){const em=$('#em').value.trim(),pw=$('#pw').value;err='';
   try{await auth({email:em,password:pw},'password');await load()}catch(e){S=null;err=e.status==400?'Correo o contraseña incorrectos.':'No se pudo iniciar sesión.';render()}}
 async function loadBl(){try{BL=await api(`bloqueos?select=*&or=(fecha.is.null,fecha.gte.${today},fecha_fin.gte.${today})&order=fecha.nullsfirst,dia_semana`)}catch(e){BL=[]}}
 async function load(){await getRol();if(ROL.rol=='pro')return loadPro();if(ROL.rol=='nada'){loading=false;return render()}loading=true;render();
-  try{await Promise.all([loadSv(),loadPr()]);await Promise.all([loadCitas(),loadBl()]);err=''}
+  try{await Promise.all([loadSv(),loadPr(),loadPin()]);await Promise.all([loadCitas(),loadBl()]);err=''}
   catch(e){err='No se pudieron cargar los datos.'}loading=false;render();watch(true);pushInit()}
 async function reload(q){if(ROL.rol=='pro')return loadPro(q);if(!q){loading=true;render()}try{await loadCitas();err=''}catch(e){err='No se pudieron cargar las citas.'}loading=false;render()}
 async function upd(id,body){try{await api('citas?id=eq.'+id,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify(body)});err=''}catch(e){err=choque(e)?'Ese horario ya está ocupado.':'No se pudo guardar el cambio.'}await reload(1);await watch(true)}
@@ -423,6 +423,47 @@ function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.ho
   ...C.gastos.map(g=>({tipo:'gasto',hora:'',numero:'',detalle:g.concepto,cliente:'',total:-g.monto,propina:0,metodo:metLbl(g.metodo),estado:'ok'}))];
   bajar(`caja-${CJ}.csv`,toCsv(['tipo','hora','numero','detalle','cliente','total','propina','metodo','estado'],rows),'csv')}
 
+
+/* ---------- PIN para proteger secciones ---------- */
+const PSECS=[['pr','Equipo'],['prod','Productos'],['rep','Reportes'],['sv','Servicios y precios'],['caja','Caja'],['resp','Respaldo']];
+let PINCFG={existe:false,secciones:[]},PINUNTIL=0,PINREDO=null;
+async function loadPin(){try{const r=await api('rpc/pin_estado',{method:'POST',body:'{}'});PINCFG=r&&r[0]?{existe:!!r[0].existe,secciones:r[0].secciones||[]}:{existe:false,secciones:[]}}catch(e){PINCFG={existe:false,secciones:[]}}}
+const pinLocked=a=>PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL;
+function pinAsk(btn){PINREDO=btn;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🔒 Sección protegida</h3><p class="mu">Escribe tu PIN para continuar.</p>
+  <input id="pin_in" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="PIN" style="text-align:center;font-size:22px;letter-spacing:.3em">
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="pinx">Cancelar</button><button class="pr" data-a="pinok">Entrar</button></div></div>`;
+  $('#m').classList.add('on');setTimeout(()=>$('#pin_in')?.focus(),50)}
+async function pinSubmit(){const f=$('#fe'),v=$('#pin_in').value;if(!v){f.textContent='Escribe el PIN.';return}
+  try{const ok=await api('rpc/pin_verificar',{method:'POST',body:JSON.stringify({p_pin:v})});
+    if(ok===true){PINUNTIL=Date.now()+5*60e3;$('#m').classList.remove('on');const b=PINREDO;PINREDO=null;if(b&&b.isConnected)b.click();else render()}
+    else{f.textContent='PIN incorrecto.';$('#pin_in').value='';$('#pin_in').focus()}}
+  catch(e){f.textContent=e.detail||'No se pudo verificar el PIN.'}}
+function showPin(){const c=PINCFG;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🔒 PIN de seguridad</h3>
+  <p class="mu">${c.existe?'El PIN está activo. Se pide al entrar a las secciones marcadas y vale 5 minutos.':'Aún no tienes PIN. Crea uno de 4 a 8 números para proteger partes de la agenda.'}</p>
+  ${c.existe?'<label>PIN actual<input id="pn_act" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>':''}
+  <label>${c.existe?'PIN nuevo (déjalo vacío para conservar el actual)':'PIN nuevo'}<input id="pn_new" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>
+  <label>Repite el PIN nuevo<input id="pn_rep" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></label>
+  <div class="dh">Secciones protegidas</div>
+  ${PSECS.map(([k,n])=>`<label style="display:flex;gap:10px;align-items:center;margin-top:8px"><input type="checkbox" id="pn_s_${k}" style="width:auto;margin:0"${(c.existe?c.secciones.includes(k):['pr','prod','rep'].includes(k))?' checked':''}>${n}</label>`).join('')}
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button>${c.existe?'<button data-a="pinq">Quitar PIN</button>':''}<button class="pr" data-a="pins">Guardar</button></div>
+  <p class="mu" style="font-size:12px">Este PIN evita que otras personas que usen tu sesión abran esas secciones. No lo compartas ni lo olvides: si lo pierdes, se restablece desde Supabase.</p></div>`;
+  $('#m').classList.add('on')}
+async function pinSave(){const f=$('#fe'),act=$('#pn_act')?.value||'',nw=$('#pn_new').value,rp=$('#pn_rep').value;
+  if(nw&&!/^[0-9]{4,8}$/.test(nw)){f.textContent='El PIN debe tener entre 4 y 8 números.';return}
+  if(nw!==rp){f.textContent='El PIN nuevo y su repetición no coinciden.';return}
+  if(!PINCFG.existe&&!nw){f.textContent='Escribe el PIN nuevo.';return}
+  const secs=PSECS.map(x=>x[0]).filter(k=>$('#pn_s_'+k).checked);
+  try{const ok=await api('rpc/pin_guardar',{method:'POST',body:JSON.stringify({p_actual:act||null,p_nuevo:nw||null,p_secciones:secs})});
+    if(ok!==true){f.textContent='El PIN actual no es correcto.';return}
+    await loadPin();PINUNTIL=Date.now()+5*60e3;$('#m').classList.remove('on');render();note('✅ PIN guardado.')}
+  catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL del PIN (pin-secciones.sql) en Supabase.':(e.detail||'No se pudo guardar el PIN.')}}
+async function pinRemove(){const f=$('#fe'),act=$('#pn_act')?.value||'';if(!act){f.textContent='Escribe el PIN actual para quitarlo.';return}
+  try{const ok=await api('rpc/pin_quitar',{method:'POST',body:JSON.stringify({p_actual:act})});
+    if(ok!==true){f.textContent='El PIN actual no es correcto.';return}
+    await loadPin();$('#m').classList.remove('on');render();note('PIN quitado.')}
+  catch(e){f.textContent=e.detail||'No se pudo quitar el PIN.'}}
 /* ---------- impresión: papel y comprobante automático ---------- */
 const getLS=(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}};
 const setLS=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
@@ -682,7 +723,7 @@ function render(){
     ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
     <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button>
     <div class="mh">Clientes y equipo</div><button data-a="cli">👤 Clientes</button><button data-a="man">📲 Citas de mañana</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button>
-    <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
+    <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
     <button class="out" data-a="out">Cerrar sesión</button>
   </div></div>
   <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
@@ -694,6 +735,7 @@ function render(){
 document.addEventListener('click',async e=>{const mu=$('#menu');
   if(mu&&mu.classList.contains('on')&&!e.target.closest('[data-a=menu]')&&!(e.target.closest('#menu')&&!e.target.closest('button')))mu.classList.remove('on');
   const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
+  if(a&&pinLocked(a))return pinAsk(b);
   if(a=='menu'){const on=!mu.classList.contains('on');mu.classList.toggle('on',on);b.setAttribute('aria-expanded',on);return}
   if(a=='login')return login();
   if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}ROL={rol:'dueno'};PS='no';S=null;return render()}
@@ -730,6 +772,12 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='cjd'){CJ=b.dataset.d;return showCaja()}
   if(a=='hcsv')return histCsv();
   if(a=='imp')return showImp();
+  if(a=='pin')return showPin();
+  if(a=='pins')return pinSave();
+  if(a=='pinq')return pinRemove();
+  if(a=='pinok')return pinSubmit();
+  if(a=='pinx'){PINREDO=null;return closeM()}
+  if(a=='lock'){PINUNTIL=0;note('🔒 Secciones bloqueadas.');return render()}
   if(a=='impt')return impTest();
   if(a=='pid'){posRead();POS.items.splice(+b.dataset.i,1);return posRender()}
   if(a=='pprod'){posRead();POS.items.push({tipo:'producto',servicio_id:null,descripcion:'',cantidad:1,precio:'',pro:''});return posRender()}
@@ -796,7 +844,7 @@ document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='f_cliente'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#f_telefono');if(m&&p&&!p.value)p.value=m.telefono}
   if(t.id=='f_telefono'){let d=t.value.replace(/\D/g,'');if(d.length==10&&d[0]=='3')d='57'+d;const m=CLI.find(x=>x.telefono==d),n=$('#f_cliente');if(m&&n&&!n.value)n.value=m.nombre}});
 $('#m').addEventListener('click',e=>{if(e.target.id=='m')closeM()});
-document.addEventListener('keydown',e=>{if(e.key=='Escape'&&$('#m').classList.contains('on'))closeM()});
+document.addEventListener('keydown',e=>{if(e.key=='Enter'&&e.target.id=='pin_in'){e.preventDefault();pinSubmit();return}if(e.key=='Escape'&&$('#m').classList.contains('on'))closeM()});
 ['click','touchstart'].forEach(ev=>document.addEventListener(ev,unlock,{capture:true,passive:true}));
 /* consultas ligeras: se pregunta cada 30 s solo si cambió algo; la agenda completa se recarga solo cuando hay cambios (o cada ~5 min) */
 let tick=0,lastPoll=0;
