@@ -273,8 +273,39 @@ const svNames=c=>svIds(c).map(id=>svcs.find(s=>s.id==id)?.nombre).filter(Boolean
 const svPrice=c=>svIds(c).reduce((a,id)=>a+(svcs.find(s=>s.id==id)?.precio||0),0);
 let CLI=[],NOTAS={},CLIERR=false;
 async function loadCli(){CLIERR=false;
-  try{const [a,n]=await Promise.all([api('rpc/clientes_resumen',{method:'POST',body:'{}'}),api('clientes_notas?select=telefono,notas')]);CLI=a;NOTAS=Object.fromEntries(n.map(x=>[x.telefono,x.notas]))}
-  catch(e){CLI=[];NOTAS={};CLIERR=true}}
+  try{const [a,n]=await Promise.all([api('rpc/clientes_resumen',{method:'POST',body:'{}'}),api('clientes_notas?select=telefono,notas,alergias').catch(()=>api('clientes_notas?select=telefono,notas'))]);CLI=a;NOTAS=Object.fromEntries(n.map(x=>[x.telefono,x.notas]));ALER=Object.fromEntries(n.map(x=>[x.telefono,x.alergias||'']))}
+  catch(e){CLI=[];NOTAS={};ALER={};CLIERR=true}}
+let ALER={},REGS=[],REGF=null;
+const RTIPO={formula:'🎨 Fórmula de color',tratamiento:'💆 Tratamiento',nota:'📝 Nota'};
+async function sto(path,o){try{return await raw(path,o)}catch(e){if(e.status==401&&await refresh())return raw(path,o);throw e}}
+async function signUrls(paths){if(!paths.length)return{};try{const r=await sto('/storage/v1/object/sign/fichas',{method:'POST',body:JSON.stringify({expiresIn:3600,paths})});
+  return Object.fromEntries(r.filter(x=>x.signedURL).map(x=>[x.path,CFG.URL+'/storage/v1'+x.signedURL]))}catch(e){return{}}}
+function shrink(file){return new Promise((ok,no)=>{const im=new Image(),u=URL.createObjectURL(file);im.onload=()=>{const k=Math.min(1,1200/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);
+  c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);c.toBlob(b=>b?ok(b):no(new Error('blob')),'image/jpeg',.8)};im.onerror=()=>{URL.revokeObjectURL(u);no(new Error('img'))};im.src=u})}
+async function regLoad(tel){const box=$('#reg_box');if(!box)return;
+  try{REGS=await api(`cliente_registros?select=*&telefono=eq.${encodeURIComponent(tel)}&order=fecha.desc,creado.desc`)}catch(e){box.innerHTML='<p class="mu">Falta ejecutar el SQL de fichas (fichas.sql) en Supabase para usar el historial técnico.</p>';return}
+  box.innerHTML=REGS.length?REGS.map(r=>`<div class="c" style="--pc:#d4af37"><h3><span>${RTIPO[r.tipo]||r.tipo}</span><span>${r.fecha}</span></h3><p>${r.profesional_id?esc(proNom(r.profesional_id))+' · ':''}${esc(r.texto||'')}</p>${(r.fotos||[]).length?`<div class="fts">${r.fotos.map(f=>`<img data-p="${esc(f)}" data-a="fto" alt="foto" style="width:78px;height:78px;object-fit:cover;border-radius:8px;margin:4px 6px 0 0;background:#222;cursor:pointer">`).join('')}</div>`:''}<div class="acts"><button data-a="rdel" data-id="${r.id}">Eliminar</button></div></div>`).join(''):'<p class="mu">Aún no hay registros técnicos.</p>';
+  const all=REGS.flatMap(r=>r.fotos||[]),U=await signUrls(all);box.querySelectorAll('img[data-p]').forEach(i=>{const u=U[i.dataset.p];if(u){i.src=u;i.dataset.u=u}})}
+function showReg(tel){REGF={tel,files:[]};
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Nuevo registro técnico</h3><p class="mu">${esc(CLI.find(x=>x.telefono==tel)?.nombre||tel)}</p>
+  <div class="row2"><label>Tipo<select id="rg_t"><option value="formula">🎨 Fórmula de color</option><option value="tratamiento">💆 Tratamiento</option><option value="nota">📝 Nota</option></select></label><label>Fecha<input id="rg_f" type="date" value="${today}"></label></div>
+  <label>Profesional<select id="rg_p"><option value="">—</option>${prosA().map(p=>`<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select></label>
+  <label>Detalle<textarea id="rg_x" rows="4" placeholder="Ej. 7.1 + 6.0 con oxidante 20 vol, 35 min. Tono final ceniza."></textarea></label>
+  <label>Fotos (antes / después)<input id="rg_i" type="file" accept="image/*" multiple></label><p class="mu" id="rg_c"></p>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="fic" data-t="${esc(tel)}">Cancelar</button><button class="pr" data-a="rsave">Guardar registro</button></div></div>`;
+  $('#m').classList.add('on')}
+async function regSave(){const f=$('#fe'),tel=REGF.tel,txt=$('#rg_x').value.trim(),fl=[...$('#rg_i').files];
+  if(!txt&&!fl.length){f.textContent='Escribe el detalle o agrega una foto.';return}
+  const btn=document.querySelector('[data-a=rsave]');btn.disabled=true;f.textContent=fl.length?'Subiendo fotos…':'Guardando…';
+  const subidas=[];
+  try{let n=0;for(const file of fl){const b=await shrink(file),path=`${tel}/${Date.now()}-${n++}.jpg`;
+      await sto('/storage/v1/object/fichas/'+path,{method:'POST',body:b,headers:{'Content-Type':'image/jpeg'}});subidas.push(path)}
+    await api('cliente_registros',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({telefono:tel,fecha:$('#rg_f').value||today,tipo:$('#rg_t').value,texto:txt||null,profesional_id:$('#rg_p').value||null,fotos:subidas})});
+    note('✅ Registro guardado');return ficha(tel)}
+  catch(e){btn.disabled=false;f.textContent=e.status==404||e.status==400&&/bucket/i.test(e.detail||'')?'Falta ejecutar el SQL de fichas en Supabase.':'No se pudo guardar. Revisa tu conexión e intenta de nuevo.';
+    if(subidas.length)sto('/storage/v1/object/fichas',{method:'DELETE',body:JSON.stringify({prefixes:subidas})}).catch(()=>{})}}
+function verFoto(u){const d=document.createElement('div');d.style.cssText='position:fixed;inset:0;z-index:99;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:10px';
+  d.innerHTML=`<img src="${u}" style="max-width:100%;max-height:100%;border-radius:8px"><button style="position:absolute;top:12px;right:12px;font-size:22px;padding:6px 14px">✕</button>`;d.onclick=()=>d.remove();document.body.appendChild(d)}
 async function ensureCli(){if(!CLI.length&&!CLIERR)await loadCli()}
 function cliRows(q){const n=q.toLowerCase().trim(),d=q.replace(/\D/g,'');
   const l=CLI.filter(c=>!n||c.nombre.toLowerCase().includes(n)||(d&&c.telefono.includes(d)));
@@ -286,11 +317,14 @@ async function ficha(tel){
   const c=CLI.find(x=>x.telefono==tel)||{telefono:tel,nombre:'',visitas:0,gastado:0};
   let h=[];try{h=await api('rpc/cliente_historial',{method:'POST',body:JSON.stringify({p_tel:tel})})}catch(e){}
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(c.nombre)}</h3><p class="mu">${esc(tel)} · ${c.visitas} ${c.visitas==1?'visita':'visitas'}${c.gastado>0?' · '+money(c.gastado)+' en total':''}</p>
-  <label>Notas del cliente<textarea id="n_cli" rows="3" placeholder="Preferencias, alergias, color de cabello…">${esc(NOTAS[tel]||'')}</textarea></label>
+  <label>⚠ Alergias o cuidados<textarea id="a_cli" rows="2" placeholder="Ej. alérgica al tinte con PPD, cuero cabelludo sensible…">${esc(ALER[tel]||'')}</textarea></label>
+  <label>Notas del cliente<textarea id="n_cli" rows="3" placeholder="Preferencias, color de cabello…">${esc(NOTAS[tel]||'')}</textarea></label>
   <div class="acts"><button class="pr" data-a="ncli" data-t="${esc(tel)}">Guardar notas</button><button data-a="wcli" data-t="${esc(tel)}">💬 WhatsApp</button><button data-a="ncita" data-t="${esc(tel)}">+ Nueva cita</button></div>
-  <div class="dh">Historial</div>${h.length?h.map(x=>`<div class="c ${x.estado}" style="--pc:#d4af37"><h3><span>${x.fecha} · ${x.hora.slice(0,5)}</span><span class="b ${x.estado}">${x.estado}</span></h3><p>${esc(x.servicios||'')} · ${esc(x.profesional||'')}${x.precio>0?' · '+money(x.precio):''}</p></div>`).join(''):'<p class="mu">Sin citas.</p>'}
+  <div class="dh">Historial técnico (fórmulas y fotos)</div><div id="reg_box"><p class="mu">Cargando…</p></div>
+  <div class="acts"><button data-a="rnew" data-t="${esc(tel)}">+ Nuevo registro</button></div>
+  <div class="dh">Historial de citas</div>${h.length?h.map(x=>`<div class="c ${x.estado}" style="--pc:#d4af37"><h3><span>${x.fecha} · ${x.hora.slice(0,5)}</span><span class="b ${x.estado}">${x.estado}</span></h3><p>${esc(x.servicios||'')} · ${esc(x.profesional||'')}${x.precio>0?' · '+money(x.precio):''}</p></div>`).join(''):'<p class="mu">Sin citas.</p>'}
   <div class="acts"><button data-a="cli">← Volver</button><button data-a="close">Cerrar</button></div></div>`;
-  $('#m').classList.add('on')}
+  $('#m').classList.add('on');regLoad(tel)}
 let cardFn=null;
 function showCita(id){const c=citas.find(x=>x.id==id);if(!c||!cardFn)return;
   $('#m').innerHTML=`<div class="sh">${cardFn(c,0)}<div class="acts"><button data-a="close">Cerrar</button></div></div>`;$('#m').classList.add('on')}
@@ -311,7 +345,28 @@ const SEL0='id,fecha,hora,dur_min,cliente,telefono,estado,notas,token,profesiona
 const SELS=[SEL0+',cobrado,metodo_pago,cita_servicios(servicio_id)',SEL0+',cobrado,cita_servicios(servicio_id)',SEL0+',cita_servicios(servicio_id)',SEL0];
 async function fetchAll(path){let o=0,all=[];for(;;){const r=await api(`${path}${path.includes('?')?'&':'?'}limit=1000&offset=${o}`);all=all.concat(r);if(r.length<1000||o>=30000)break;o+=1000}return all}
 async function qCitas(rg){let last;for(const s of SELS){try{return await fetchAll(`citas?select=${s}${rg}`)}catch(e){last=e}}throw last}
-async function loadCitas(){const to=mode=='sem'?add(date,6):date;citas=await qCitas(`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora,id`)}
+async function loadCitas(){const to=mode=='sem'?add(date,6):date;citas=await qCitas(`&fecha=gte.${date}&fecha=lte.${to}&order=fecha,hora,id`);await loadAbo()}
+/* abonos (anticipos) */
+let ABO={};
+const aboPend=id=>(ABO[id]||[]).filter(a=>!a.devuelto&&!a.venta_id);
+const aboSum=id=>aboPend(id).reduce((t,a)=>t+ +a.monto,0);
+async function loadAbo(){ABO={};try{const ids=citas.filter(c=>c.estado!='atendida').map(c=>c.id);if(!ids.length)return;
+  const r=await api(`abonos?select=id,cita_id,monto,metodo,venta_id,devuelto,creado&cita_id=in.(${ids.join(',')})&order=creado`);r.forEach(a=>(ABO[a.cita_id]=ABO[a.cita_id]||[]).push(a))}catch(e){ABO={}}}
+async function showAbo(id){const c=cget(id);if(!c)return;let L=[],bad=false;
+  try{L=await api(`abonos?select=*&cita_id=eq.${id}&order=creado`)}catch(e){bad=true}
+  ABO[id]=L;if(!bad)render();
+  const open=c.estado=='pendiente'||c.estado=='confirmada',pend=aboSum(id);
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">💰 Abonos</h3><p class="mu">${esc(c.cliente)} · ${dl(c.fecha)} ${c.hora.slice(0,5)} · ${esc(svNames(c))}</p>
+  ${bad?'<p class="msg">Falta ejecutar el SQL de abonos (abonos.sql) en Supabase.</p>':`
+  <div class="stats"><div><b>${money(pend)}</b><span>abonado sin usar</span></div></div>
+  ${L.length?L.map(a=>`<div class="c" style="--pc:#d4af37"><h3><span>${money(a.monto)} · ${metLbl(a.metodo)}</span><span>${a.fecha}</span></h3><p>${a.devuelto?'Devuelto el '+a.devuelto_fecha:a.venta_id?'✓ Descontado en la venta':'Pendiente de descontar'}${a.nota?' · '+esc(a.nota):''}</p>${!a.devuelto&&!a.venta_id?`<div class="acts"><button data-a="adev" data-id="${a.id}" data-c="${id}">Devolver</button></div>`:''}</div>`).join(''):'<p class="mu">Esta cita aún no tiene abonos.</p>'}
+  ${open?`<div class="dh">Registrar abono</div><div class="row2"><label>Valor<input id="ab_m" type="number" min="0" step="1000" inputmode="numeric"></label><label>Método${metSel('ab_t','nequi')}</label></div><label>Nota (opcional)<input id="ab_n" placeholder="Ej. comprobante Nequi"></label>
+  <div class="acts"><button class="pr" data-a="asave" data-id="${id}">Guardar abono</button>${pend>0?`<button data-a="awa" data-id="${id}">💬 Confirmar al cliente</button>`:''}</div>`:''}`}
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
+function aboWa(id){const c=cget(id);if(!c)return;let ph=(c.telefono||'').replace(/\D/g,'');if(ph.length==10&&ph[0]=='3')ph='57'+ph;
+  const t=`Hola ${c.cliente}, recibimos tu abono de ${money(aboSum(id))} para tu cita en ${CFG.NOMBRE}: ${svNames(c)||'servicio'}, ${dl(c.fecha)} a las ${c.hora.slice(0,5)}. Ese valor se descontará del total el día del servicio. ¡Gracias!`;
+  window.open(`https://wa.me/${ph}?text=${encodeURIComponent(t)}`,'_blank')}
 const valor=c=>c.cobrado!=null?+c.cobrado:svPrice(c);
 const csvCell=v=>{v=v==null?'':String(v);return /[";\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
 const toCsv=(cols,rows)=>[cols.join(';'),...rows.map(r=>cols.map(c=>csvCell(r[c])).join(';'))].join('\r\n');
@@ -327,9 +382,10 @@ const cobrar=id=>posOpen({cita:id});
 let POS=null,VR=null,CAJ={ventas:[],gastos:[],caja:null,leg:[],err:false};
 const metSel=(id,sel)=>`<select id="${id}">${METODOS.map(([k,n])=>`<option value="${k}"${sel==k?' selected':''}>${n}</option>`).join('')}</select>`;
 function posCalc(){const sub=POS.items.reduce((a,i)=>a+(+i.cantidad||0)*(+i.precio||0),0);let d=+POS.desc||0;if(POS.dtipo=='%')d=Math.round(sub*Math.min(d,100)/100);d=Math.min(d,sub);
-  const tot=sub-d,prop=+POS.prop||0,cobrar=tot+prop,pag=POS.pagos.reduce((a,p)=>a+(+p.v||0),0);return{sub,d,tot,prop,cobrar,pag,dif:cobrar-pag}}
+  const tot=sub-d,prop=+POS.prop||0,cobrar=tot+prop,pag=POS.pagos.reduce((a,p)=>a+(+p.v||0),0);let ab=0;(POS.abonos||[]).forEach(x=>{if(ab+ +x.monto<=cobrar)ab+= +x.monto});const pagar=cobrar-ab;return{sub,d,tot,prop,cobrar,ab,pagar,pag,dif:pagar-pag}}
 async function posOpen(o){o=o||{};await ensureCli();await ensureProd();const c=o.cita?cget(o.cita):null;
-  POS={cita:c?c.id:null,cli:c?c.cliente:'',tel:c?(c.telefono||''):'',pro:c?c.profesional_id:(fp||prosA()[0]?.id||''),items:[],desc:'',dtipo:'$',prop:'',pagos:[{m:'efectivo',v:''}],nota:''};
+  POS={cita:c?c.id:null,cli:c?c.cliente:'',tel:c?(c.telefono||''):'',pro:c?c.profesional_id:(fp||prosA()[0]?.id||''),items:[],desc:'',dtipo:'$',prop:'',pagos:[{m:'efectivo',v:''}],nota:'',abonos:[]};
+  if(c){try{POS.abonos=(await api(`abonos?select=id,monto&cita_id=eq.${c.id}&venta_id=is.null&devuelto=eq.false&order=creado`))}catch(e){POS.abonos=[]}}
   if(c)POS.items=svIds(c).map(id=>{const s=svcs.find(x=>x.id==id);return{tipo:'servicio',servicio_id:id,descripcion:s?.nombre||'Servicio',cantidad:1,precio:s&&s.precio>0?s.precio:'',pro:c.profesional_id}});
   posRender()}
 function posRead(){const v=id=>$('#'+id)?.value;
@@ -337,9 +393,9 @@ function posRead(){const v=id=>$('#'+id)?.value;
   POS.items.forEach((i,n)=>{i.descripcion=v(`pi_${n}_d`)??i.descripcion;i.cantidad=v(`pi_${n}_q`)??i.cantidad;i.precio=v(`pi_${n}_p`)??i.precio;i.pro=v(`pi_${n}_r`)||i.pro});
   POS.pagos.forEach((p,n)=>{p.m=v(`pg_${n}_m`)||p.m;p.v=v(`pg_${n}_v`)??p.v})}
 function posTot(){const k=posCalc(),el=$('#pos_tot');if(!el)return;
-  el.innerHTML=`<div><span>Subtotal</span><b>${money(k.sub)}</b></div>${k.d?`<div><span>Descuento</span><b>-${money(k.d)}</b></div>`:''}<div><span>Total</span><b>${money(k.tot)}</b></div>${k.prop?`<div><span>Propina</span><b>${money(k.prop)}</b></div>`:''}<div class="big"><span>A cobrar</span><b>${money(k.cobrar)}</b></div><div style="color:${k.dif==0?'#6fcf97':'#ff7b6b'}"><span>${k.dif==0?'Pago completo ✓':(k.dif>0?'Falta por registrar':'Sobra en el pago')}</span><b>${k.dif==0?'':money(Math.abs(k.dif))}</b></div>`}
-function posInput(t){posRead();if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().cobrar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
-function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().cobrar||'';const P=POS;
+  el.innerHTML=`<div><span>Subtotal</span><b>${money(k.sub)}</b></div>${k.d?`<div><span>Descuento</span><b>-${money(k.d)}</b></div>`:''}<div><span>Total</span><b>${money(k.tot)}</b></div>${k.prop?`<div><span>Propina</span><b>${money(k.prop)}</b></div>`:''}${k.ab?`<div><span>Total con propina</span><b>${money(k.cobrar)}</b></div><div style="color:#6fcf97"><span>Abono ya recibido</span><b>-${money(k.ab)}</b></div>`:''}<div class="big"><span>${k.ab?'Cobrar hoy':'A cobrar'}</span><b>${money(k.pagar)}</b></div><div style="color:${k.dif==0?'#6fcf97':'#ff7b6b'}"><span>${k.dif==0?'Pago completo ✓':(k.dif>0?'Falta por registrar':'Sobra en el pago')}</span><b>${k.dif==0?'':money(Math.abs(k.dif))}</b></div>`}
+function posInput(t){posRead();if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().pagar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
+function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';const P=POS;
   const po=sel=>'<option value="">—</option>'+prosA().map(p=>`<option value="${p.id}"${p.id==sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">${P.cita?'Cobrar cita':'Nueva venta'}</h3>
   <datalist id="dl_cli">${CLI.map(x=>`<option value="${esc(x.nombre)}">${esc(x.telefono)}</option>`).join('')}</datalist>
@@ -362,7 +418,7 @@ async function posSave(){posRead();const f=$('#fe'),k=posCalc();
   for(const i of POS.items){if(!String(i.descripcion).trim()){f.textContent='Escribe el nombre de cada producto o concepto.';return}
     if(i.precio===''||+i.precio<0){f.textContent=`Escribe el precio de "${i.descripcion}".`;return}if(!(+i.cantidad>=1)){f.textContent='La cantidad debe ser 1 o más.';return}}
   if(POS.pagos.some(p=>+p.v<0)){f.textContent='Los montos del pago no pueden ser negativos.';return}
-  if(k.cobrar>0&&k.dif!=0){f.textContent=k.dif>0?'El pago no cubre el total a cobrar.':'El pago es mayor al total a cobrar.';return}
+  if(k.dif!=0){f.textContent=k.dif>0?'El pago no cubre el total a cobrar.':'El pago es mayor al total a cobrar.';return}
   const items=POS.items.map(i=>({tipo:i.tipo,servicio_id:i.servicio_id||null,descripcion:String(i.descripcion).trim(),cantidad:+i.cantidad,precio:+i.precio,profesional_id:i.pro||POS.pro||null,producto_id:i.producto_id||null}));
   const need={};items.forEach(i=>{if(i.producto_id)need[i.producto_id]=(need[i.producto_id]||0)+i.cantidad});
   for(const[pid,q]of Object.entries(need)){const pr=PROD.find(x=>x.id==pid);if(pr&&pr.stock!=null&&pr.stock<q){f.textContent=`No hay suficiente stock de ${pr.nombre}: quedan ${pr.stock}.`;return}}
@@ -377,7 +433,9 @@ function reciboTxt(v){const sep='--------------------------------',it=v.venta_it
   if(v.cliente)L.push('Cliente: '+v.cliente);const pn=proNom(v.profesional_id);if(pn)L.push('Atendió: '+pn);
   L.push(sep);it.forEach(i=>L.push((i.cantidad>1?i.cantidad+' x ':'')+i.descripcion,'   '+money(i.cantidad*i.precio)));
   L.push(sep,'Subtotal: '+money(v.subtotal));if(+v.descuento>0)L.push('Descuento: -'+money(v.descuento));L.push('Total: '+money(v.total));
-  if(+v.propina>0)L.push('Propina: '+money(v.propina),'Total pagado: '+money(+v.total+ +v.propina));
+  const ab=+v.abono_aplicado||0;
+  if(+v.propina>0)L.push('Propina: '+money(v.propina),(ab>0?'Total con propina: ':'Total pagado: ')+money(+v.total+ +v.propina));
+  if(ab>0)L.push('Abono previo: -'+money(ab),'Pagado hoy: '+money(+v.total+ +v.propina-ab));
   L.push('Pago: '+(pg.map(p=>metLbl(p.metodo)+' '+money(p.monto)).join(' + ')||'Sin pago'),sep,'¡Gracias por tu visita!','Comprobante interno de venta (no es factura electrónica).');return L.join('\n')}
 const reciboPids=v=>[...new Set((v.venta_items||[]).map(i=>i.profesional_id||v.profesional_id||''))];
 function reciboPro(v,pid){const sep='--------------------------------',f=+v.subtotal>0?(+v.total)/(+v.subtotal):1,it=(v.venta_items||[]).filter(i=>(i.profesional_id||v.profesional_id||'')==pid);
@@ -395,9 +453,11 @@ function drawRecibo(){const v=VR,multi=reciboPids(v).length>1;
 async function showCaja(){let vs=[],gs=[],cj=null,err=false,leg=[];
   try{[vs,gs,cj]=await Promise.all([api(`ventas?select=*,venta_items(*),venta_pagos(*)&fecha=eq.${CJ}&order=hora`),api(`gastos?select=*&fecha=eq.${CJ}&order=creado`),api(`cajas?select=*&fecha=eq.${CJ}`)]);cj=cj[0]||null}catch(e){err=true;vs=[];gs=[];cj=null}
   try{leg=await qCitas(`&estado=eq.atendida&fecha=eq.${CJ}&order=hora,id`)}catch(e){}
-  CAJ={ventas:vs,gastos:gs,caja:cj,err,leg:leg.filter(c=>!vs.some(v=>v.cita_id==c.id&&!v.anulada))};drawCaja()}
+  let ab=[];try{ab=await api(`abonos?select=*,citas(cliente)&or=(fecha.eq.${CJ},devuelto_fecha.eq.${CJ})&order=creado`)}catch(e){}
+  CAJ={abo:ab,ventas:vs,gastos:gs,caja:cj,err,leg:leg.filter(c=>!vs.some(v=>v.cita_id==c.id&&!v.anulada))};drawCaja()}
 function drawCaja(){const C=CAJ,vs=C.ventas.filter(v=>!v.anulada),mt={};
   vs.forEach(v=>(v.venta_pagos||[]).forEach(p=>mt[p.metodo]=(mt[p.metodo]||0)+ +p.monto));C.leg.forEach(c=>{const k=c.metodo_pago||'sin';mt[k]=(mt[k]||0)+valor(c)});
+  const AB=C.abo||[],abIn=AB.filter(a=>a.fecha==CJ),abOut=AB.filter(a=>a.devuelto&&a.devuelto_fecha==CJ);abIn.forEach(a=>mt[a.metodo]=(mt[a.metodo]||0)+ +a.monto);abOut.forEach(a=>mt[a.metodo]=(mt[a.metodo]||0)- +a.monto);
   const venta=vs.reduce((a,v)=>a+ +v.total,0)+C.leg.reduce((a,c)=>a+valor(c),0),prop=vs.reduce((a,v)=>a+ +v.propina,0),gT=C.gastos.reduce((a,g)=>a+ +g.monto,0),gE=C.gastos.filter(g=>g.metodo=='efectivo').reduce((a,g)=>a+ +g.monto,0);
   const ap=+(C.caja?.apertura||0),esp=ap+(mt.efectivo||0)-gE,con=C.caja?.contado,dif=con!=null?+con-esp:null;C.calc={venta,esp};
   const filas=[...METODOS.map(x=>x[0]),'sin'].filter(k=>mt[k]!=null).map(k=>`<tr><td>${k=='sin'?'Sin método registrado':metLbl(k)}</td><td>${money(mt[k])}</td></tr>`).join('');
@@ -407,8 +467,9 @@ function drawCaja(){const C=CAJ,vs=C.ventas.filter(v=>!v.anulada),mt={};
   <div class="stats"><div><b>${money(venta)}</b><span>ventas</span></div><div><b>${money(prop)}</b><span>propinas</span></div><div><b>${money(gT)}</b><span>gastos</span></div><div><b>${money(esp)}</b><span>efectivo esperado</span></div></div>
   ${C.err?'':`<label>Base inicial en efectivo<div class="row" style="margin-top:8px"><input id="cj_ap" type="number" min="0" inputmode="numeric" value="${C.caja?ap:''}" style="margin:0"><button data-a="capt">Guardar base</button></div></label>`}
   ${filas?`<table class="tb"><tr><th>Cobrado por método (con propinas)</th><th>Total</th></tr>${filas}</table>`:''}
-  ${C.err?'':`<div class="dh">Gastos del día</div>${C.gastos.map(g=>`<div class="c" style="--pc:#d4af37"><h3><span>${esc(g.concepto)}</span><span>${money(g.monto)}</span></h3><p>${metLbl(g.metodo)} <button data-a="gdel" data-id="${g.id}" style="margin-left:8px">Quitar</button></p></div>`).join('')}
-  <div class="row2"><input id="g_c" placeholder="Concepto (ej. insumos)"><input id="g_m" type="number" min="0" inputmode="numeric" placeholder="Monto"></div><div class="row" style="margin-top:8px">${metSel('g_t','efectivo')}<button data-a="gadd">+ Agregar gasto</button></div>`}
+  ${C.err?'':`<div class="dh">Gastos del día</div>${C.gastos.map(g=>`<div class="c" style="--pc:#d4af37"><h3><span>${esc(g.concepto)}</span><span>${money(g.monto)}</span></h3><p>${g.categoria?gcatLbl(g.categoria)+' · ':''}${metLbl(g.metodo)} ${g.categoria=='pago_pro'?'· se anula desde Pagos a profesionales':`<button data-a="gdel" data-id="${g.id}" style="margin-left:8px">Quitar</button>`}</p></div>`).join('')}
+  <div class="row2"><input id="g_c" placeholder="Concepto (ej. insumos)"><input id="g_m" type="number" min="0" inputmode="numeric" placeholder="Monto"></div><div class="row" style="margin-top:8px"><select id="g_k">${GCAT.map(([k,n])=>`<option value="${k}">${n}</option>`).join('')}</select></div><div class="row" style="margin-top:8px">${metSel('g_t','efectivo')}<button data-a="gadd">+ Agregar gasto</button></div>`}
+  ${abIn.length||abOut.length?`<div class="dh">Abonos del día</div>${abIn.map(a=>`<div class="c" style="--pc:#6fcf97"><h3><span>${esc(a.citas?.cliente||'Abono')}</span><span>+${money(a.monto)}</span></h3><p>${metLbl(a.metodo)} · recibido</p></div>`).join('')}${abOut.map(a=>`<div class="c" style="--pc:#ff7b6b"><h3><span>${esc(a.citas?.cliente||'Abono')}</span><span>-${money(a.monto)}</span></h3><p>${metLbl(a.metodo)} · devuelto</p></div>`).join('')}<p class="mu">Los abonos cuentan en el cobro por método y en el efectivo esperado el día que se reciben. Al cobrar la cita solo entra lo que falta.</p>`:''}
   <div class="dh">Ventas del día</div>
   ${C.ventas.map(v=>`<div class="c ${v.anulada?'cancelada':''}" style="--pc:#d4af37;cursor:pointer" data-a="vrc" data-id="${v.id}"><h3><span><em style="font-size:16px">${v.hora.slice(0,5)}</em> N° ${v.numero} ${esc(v.cliente||'Cliente ocasional')}</span><span>${money(+v.total+ +v.propina)}</span></h3><p>${(v.venta_pagos||[]).map(p=>metLbl(p.metodo)).join(' + ')||'Sin pago'}${v.anulada?' · ANULADA':''}</p></div>`).join('')||''}
   ${C.leg.map(c=>`<div class="c" style="--pc:#d4af37"><h3><span><em style="font-size:16px">${c.hora.slice(0,5)}</em> ${esc(c.cliente)}</span><span>${money(valor(c))}</span></h3><p>${esc(svNames(c))} · ${metLbl(c.metodo_pago)} · cita atendida sin comprobante</p></div>`).join('')}
@@ -420,6 +481,7 @@ function drawCaja(){const C=CAJ,vs=C.ventas.filter(v=>!v.anulada),mt={};
   $('#m').classList.add('on')}
 function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.hora.slice(0,5),numero:v.numero,detalle:(v.venta_items||[]).map(i=>i.descripcion).join(' + '),cliente:v.cliente||'',total:v.total,propina:v.propina,metodo:(v.venta_pagos||[]).map(p=>metLbl(p.metodo)+' '+p.monto).join(' + '),estado:v.anulada?'anulada':'ok'})),
   ...C.leg.map(c=>({tipo:'cita sin comprobante',hora:c.hora.slice(0,5),numero:'',detalle:svNames(c),cliente:c.cliente,total:valor(c),propina:0,metodo:metLbl(c.metodo_pago),estado:'ok'})),
+  ...(C.abo||[]).filter(a=>a.fecha==CJ).map(a=>({tipo:'abono recibido',hora:'',numero:'',detalle:'Abono de cita',cliente:a.citas?.cliente||'',total:a.monto,propina:0,metodo:metLbl(a.metodo),estado:'ok'})),...(C.abo||[]).filter(a=>a.devuelto&&a.devuelto_fecha==CJ).map(a=>({tipo:'abono devuelto',hora:'',numero:'',detalle:'Abono de cita',cliente:a.citas?.cliente||'',total:-a.monto,propina:0,metodo:metLbl(a.metodo),estado:'ok'})),
   ...C.gastos.map(g=>({tipo:'gasto',hora:'',numero:'',detalle:g.concepto,cliente:'',total:-g.monto,propina:0,metodo:metLbl(g.metodo),estado:'ok'}))];
   bajar(`caja-${CJ}.csv`,toCsv(['tipo','hora','numero','detalle','cliente','total','propina','metodo','estado'],rows),'csv')}
 
@@ -428,7 +490,7 @@ function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.ho
 const PSECS=[['pr','Equipo'],['prod','Productos'],['rep','Reportes'],['sv','Servicios y precios'],['caja','Caja'],['resp','Respaldo']];
 let PINCFG={existe:false,secciones:[]},PINUNTIL=0,PINREDO=null;
 async function loadPin(){try{const r=await api('rpc/pin_estado',{method:'POST',body:'{}'});PINCFG=r&&r[0]?{existe:!!r[0].existe,secciones:r[0].secciones||[]}:{existe:false,secciones:[]}}catch(e){PINCFG={existe:false,secciones:[]}}}
-const pinLocked=a=>PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL;
+const pinLocked=a=>{if(a=='liq')a='rep';return PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL};
 function pinAsk(btn){PINREDO=btn;
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🔒 Sección protegida</h3><p class="mu">Escribe tu PIN para continuar.</p>
   <input id="pin_in" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="PIN" style="text-align:center;font-size:22px;letter-spacing:.3em">
@@ -503,6 +565,7 @@ function formProd(id){const p=PROD.find(x=>x.id==id)||{nombre:'',precio:'',stock
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar producto':'Nuevo producto'}</h3>
   <label>Nombre<input id="p_nom" value="${esc(p.nombre)}"></label>
   <label>Precio de venta<input id="p_pre" type="number" min="0" inputmode="numeric" value="${p.precio}"></label>
+  <label>Costo (lo que te cuesta, opcional)<input id="p_cos" type="number" min="0" inputmode="numeric" value="${p.costo??''}" placeholder="Sirve para calcular tu utilidad"></label>
   <label>Inventario<select id="p_ctl"><option value="1"${ctl?' selected':''}>Controlar cuántos quedan</option><option value="0"${ctl?'':' selected'}>No controlar</option></select></label>
   <div id="g_stk" style="display:${ctl?'block':'none'}"><label>Cantidad en stock<input id="p_stk" type="number" min="0" inputmode="numeric" value="${p.stock??0}"></label><label>Avisar cuando queden…<input id="p_min" type="number" min="0" inputmode="numeric" value="${p.stock_min||0}"></label></div>
   <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no se vende)</option></select></label>
@@ -511,7 +574,9 @@ function formProd(id){const p=PROD.find(x=>x.id==id)||{nombre:'',precio:'',stock
 async function saveProd(id){const f=$('#fe'),nom=$('#p_nom').value.trim(),pre=$('#p_pre').value,ctl=$('#p_ctl').value=='1';
   if(nom.length<2){f.textContent='Escribe el nombre.';return}if(pre===''||+pre<0){f.textContent='Escribe el precio.';return}
   const o={nombre:nom,precio:+pre,stock:ctl?Math.max(0,Math.round(+$('#p_stk').value||0)):null,stock_min:ctl?Math.max(0,Math.round(+$('#p_min').value||0)):0,activo:$('#p_act').value=='1'};
-  try{await api(id?'productos?id=eq.'+id:'productos',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await showProd()}
+  const cs=$('#p_cos').value;o.costo=cs===''?null:Math.max(0,+cs);
+  const go=b=>api(id?'productos?id=eq.'+id:'productos',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)});
+  try{await go(o).catch(e=>{if(e.status==400&&o.costo==null){const{costo,...r}=o;return go(r)}throw e});await showProd()}
   catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL de productos en Supabase.':(e.detail||'No se pudo guardar.')}}
 function formEnt(id){const p=PROD.find(x=>x.id==id);if(!p)return;
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(p.nombre)}</h3><p class="mu">Ahora hay <b>${p.stock}</b> en stock.</p>
@@ -543,7 +608,9 @@ function drawHist(){if(!HD)return;const cerr=new Set(HD.cj.map(c=>c.fecha)),pend
   $('#m').classList.add('on')}
 function histCsv(){bajar(`cierres-${HM}.csv`,toCsv(['dia','apertura','esperado','contado','diferencia'],HD.cj.map(c=>({dia:c.fecha,apertura:c.apertura,esperado:c.esperado==null?'':c.esperado,contado:c.contado,diferencia:histDif(c)==null?'':histDif(c)}))),'csv')}
 /* ---------- reportes: ventas + citas atendidas anteriores al punto de venta ---------- */
-let RP='mes',RA=today,RV='pro',RF='',RD=null;
+const GCAT=[['insumos','Insumos y productos'],['servicios','Servicios públicos e internet'],['arriendo','Arriendo'],['nomina','Nómina y aportes'],['mantenimiento','Mantenimiento'],['publicidad','Publicidad'],['otros','Otros']];
+const gcatLbl=k=>k=='pago_pro'?'Pagos a profesionales':(GCAT.find(x=>x[0]==k)?.[1]||'Sin categoría');
+let RP='mes',RA=today,RV='pro',RF='',RD=null,UT=null,LQ=null;
 const dow1=d=>{const x=new Date(d+'T12:00'),k=(x.getDay()+6)%7;return add(d,-k)};
 function repRange(){if(RP=='dia')return[RA,RA];if(RP=='sem'){const a=dow1(RA);return[a,add(a,6)]}const[y,m]=RA.split('-').map(Number);return[RA.slice(0,7)+'-01',RA.slice(0,7)+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0')]}
 function repNav(n){if(RP=='dia')RA=add(RA,n);else if(RP=='sem')RA=add(RA,7*n);else{const[y,m]=RA.split('-').map(Number),d=new Date(y,m-1+n,1);RA=iso(d)}}
@@ -569,7 +636,7 @@ function repCalc(){const{vs,leg}=RD,R={};
   const dl2=Object.entries(byD).sort((a,b)=>a[0].localeCompare(b[0])).map(([f,l])=>({fecha:f,...sum(l)}));
   return{pl,dl:dl2,all:sum(rows),sel:sum(sel)}}
 const pct=(a,b)=>b>0?Math.round(a*100/b)+'%':'—';
-async function showRep(){RD=null;$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');await repLoad();drawRep()}
+async function showRep(){RD=null;$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');await repLoad();if(RV=='uti')await utLoad();drawRep()}
 function drawRep(){if(!RD)return;const k=repCalc(),T=k.all;
   const per=[['dia','Día'],['sem','Semana'],['mes','Mes']];
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Reportes</h3>
@@ -577,16 +644,64 @@ function drawRep(){if(!RD)return;const k=repCalc(),T=k.all;
   <div class="row"><button data-a="rm" data-n="-1">‹</button><b style="flex:1;text-align:center">${esc(repTitle())}</b><button data-a="rm" data-n="1">›</button><button data-a="rm" data-n="0">Hoy</button></div>
   ${RD.err?'<p class="msg">Falta ejecutar el SQL del punto de venta en Supabase. Mientras tanto se muestran solo las citas atendidas.</p>':''}
   <div class="stats" style="margin-top:10px"><div><b>${money(T.ing)}</b><span>ingresos</span></div><div><b>${money(T.com)}</b><span>comisiones (${pct(T.com,T.ing)})</span></div><div><b>${money(T.sal)}</b><span>para el salón (${pct(T.sal,T.ing)})</span></div><div><b>${money(T.prop)}</b><span>propinas</span></div></div>
-  <div class="seg"><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Día a día</button></div>
-  ${RV=='pro'?(k.pl.length?`<table class="tb"><tr><th>Profesional</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th><th>A pagar</th></tr>${k.pl.map(r=>`<tr><td>${esc(r.nombre)}</td><td>${money(r.ing)}</td><td>${money(r.com)}<br><small>${pct(r.com,r.ing)}</small></td><td>${money(r.sal)}<br><small>${pct(r.sal,r.ing)}</small></td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(T.ing)}</b></td><td><b>${money(T.com)}</b></td><td><b>${money(T.sal)}</b></td><td><b>${money(T.prop)}</b></td><td><b>${money(T.com+T.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>')
+  <div class="seg"><button data-a="rv" data-v="pro" class="${RV=='pro'?'on':''}">Por profesional</button><button data-a="rv" data-v="dia" class="${RV=='dia'?'on':''}">Día a día</button><button data-a="rv" data-v="uti" class="${RV=='uti'?'on':''}">Utilidad</button></div>
+  ${RV=='uti'?utHtml(k):RV=='pro'?(k.pl.length?`<table class="tb"><tr><th>Profesional</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th><th>A pagar</th></tr>${k.pl.map(r=>`<tr><td>${esc(r.nombre)}</td><td>${money(r.ing)}</td><td>${money(r.com)}<br><small>${pct(r.com,r.ing)}</small></td><td>${money(r.sal)}<br><small>${pct(r.sal,r.ing)}</small></td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(T.ing)}</b></td><td><b>${money(T.com)}</b></td><td><b>${money(T.sal)}</b></td><td><b>${money(T.prop)}</b></td><td><b>${money(T.com+T.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>')
    :`<label>Profesional<select id="rep_f"><option value="">Todo el equipo</option>${prosA().map(p=>`<option value="${p.id}"${RF==p.id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label>
    ${k.dl.length?`<table class="tb"><tr><th>Día</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th></tr>${k.dl.map(r=>`<tr><td>${r.fecha.slice(8)}/${r.fecha.slice(5,7)}</td><td>${money(r.ing)}</td><td>${money(r.com)}</td><td>${money(r.sal)}</td><td>${money(r.prop)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(k.sel.ing)}</b></td><td><b>${money(k.sel.com)}</b><br><small>${pct(k.sel.com,k.sel.ing)}</small></td><td><b>${money(k.sel.sal)}</b><br><small>${pct(k.sel.sal,k.sel.ing)}</small></td><td><b>${money(k.sel.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>'}`}
   <p class="mu" style="font-size:12px">Ingresos = servicios + productos, ya con descuento. La comisión se calcula solo sobre servicios (porcentaje de cada profesional); los productos son del salón. Las propinas son del profesional y no cuentan como ingreso del salón. “A pagar” = comisión + propinas.</p>
-  <div class="acts"><button data-a="close">Cerrar</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
+  <div class="acts"><button data-a="close">Cerrar</button><button data-a="liq">💸 Pagar a profesionales</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
   $('#m').classList.add('on')}
-function repCsv(){const k=repCalc(),t=repTitle().replace(/[^\w]+/g,'-');
+function repCsv(){const k=repCalc(),t=repTitle().replace(/[^\w]+/g,'-');if(RV=='uti')return utCsv(k,t);
   bajar(`reporte-${t}-profesionales.csv`,toCsv(['profesional','ingresos','comision','pct_comision','salon','pct_salon','propinas','a_pagar'],k.pl.map(r=>({profesional:r.nombre,ingresos:Math.round(r.ing),comision:Math.round(r.com),pct_comision:pct(r.com,r.ing),salon:Math.round(r.sal),pct_salon:pct(r.sal,r.ing),propinas:r.prop,a_pagar:Math.round(r.com+r.prop)}))),'csv');
   setTimeout(()=>bajar(`reporte-${t}-dias.csv`,toCsv(['dia','ingresos','comision','salon','propinas'],k.dl.map(r=>({dia:r.fecha,ingresos:Math.round(r.ing),comision:Math.round(r.com),salon:Math.round(r.sal),propinas:r.prop}))),'csv'),500)}
+
+/* ---------- utilidad del mes ---------- */
+async function utLoad(){const[d1,d2]=repRange();UT={g:[],fj:[],errFj:false,errG:false};await ensureProd();
+  try{UT.g=await fetchAll(`gastos?select=*&fecha=gte.${d1}&fecha=lte.${d2}&order=fecha`)}catch(e){UT.errG=true}
+  try{UT.fj=await api('gastos_fijos?select=*&order=concepto')}catch(e){UT.errFj=true}}
+function utCalc(k){const T=k.all;let cp=0,nSin=0;
+  (RD.vs||[]).forEach(v=>(v.venta_items||[]).forEach(i=>{if(i.tipo=='producto'){const pr=PROD.find(x=>x.id==i.producto_id);if(pr&&pr.costo!=null)cp+=i.cantidad*pr.costo;else nSin+=i.cantidad}}));
+  const gv=(UT.g||[]).filter(g=>g.categoria!='pago_pro'),gvT=gv.reduce((a,g)=>a+ +g.monto,0),fj=(UT.fj||[]).filter(f=>f.activo!==false),fjT=fj.reduce((a,f)=>a+ +f.monto,0);
+  const cat={};gv.forEach(g=>{const c=g.categoria||'sin';cat[c]=(cat[c]||0)+ +g.monto});
+  const uti=T.ing-T.com-cp-gvT-fjT;return{ing:T.ing,com:T.com,cp,nSin,gvT,fjT,uti,cat,fj}}
+function utHtml(k){if(!UT)return '<p class="mu">Cargando…</p>';const u=utCalc(k),neg=u.uti<0,mg=n=>(n<0?'-':'')+money(Math.abs(n));
+  return `${RD.err?'':''}<div class="stats" style="margin-top:10px"><div><b>${money(u.ing)}</b><span>ingresos</span></div><div><b style="color:${neg?'#ff7b6b':'#6fcf97'}">${mg(u.uti)}</b><span>utilidad</span></div><div><b>${pct(u.uti,u.ing)}</b><span>margen</span></div></div>
+  <table class="tb"><tr><td>Ingresos (servicios + productos)</td><td>${money(u.ing)}</td></tr><tr><td>− Comisiones de profesionales</td><td>${money(u.com)}</td></tr><tr><td>− Costo de productos vendidos</td><td>${money(u.cp)}</td></tr><tr><td>− Gastos del mes</td><td>${money(u.gvT)}</td></tr><tr><td>− Gastos fijos mensuales</td><td>${money(u.fjT)}</td></tr><tr><td><b>= Utilidad</b></td><td><b style="color:${neg?'#ff7b6b':'#6fcf97'}">${mg(u.uti)}</b></td></tr></table>
+  ${u.nSin?`<p class="mu" style="font-size:12px">Vendiste ${u.nSin} producto(s) sin costo registrado. Ponles el costo en Productos para una utilidad más exacta.</p>`:''}
+  ${UT.errG?'<p class="msg">No se pudieron leer los gastos.</p>':''}
+  ${Object.keys(u.cat).length?`<div class="dh">Gastos por categoría</div><table class="tb">${Object.entries(u.cat).sort((a,b)=>b[1]-a[1]).map(([c,m])=>`<tr><td>${c=='sin'?'Sin categoría':gcatLbl(c)}</td><td>${money(m)}</td></tr>`).join('')}</table>`:''}
+  <div class="dh">Gastos fijos de cada mes</div>
+  ${UT.errFj?'<p class="msg">Falta ejecutar el SQL de finanzas (finanzas.sql) en Supabase.</p>':`${(UT.fj||[]).map(f=>`<div class="c" style="--pc:#d4af37"><h3><span>${esc(f.concepto)}</span><span>${money(f.monto)}</span></h3><div class="acts"><button data-a="fjdel" data-id="${f.id}">Quitar</button></div></div>`).join('')||'<p class="mu">Agrega arriendo, internet, luz, nómina fija… lo que pagas todos los meses.</p>'}
+  <div class="row2"><input id="fj_c" placeholder="Concepto (ej. Arriendo)"><input id="fj_m" type="number" min="0" inputmode="numeric" placeholder="Monto mensual"></div><button data-a="fjadd" style="margin-top:8px">+ Agregar gasto fijo</button>`}
+  <p class="mu" style="font-size:12px">Utilidad = ingresos − comisiones − costo de productos − gastos del mes − gastos fijos. Las propinas no cuentan (son de los profesionales) y los pagos a profesionales no se restan otra vez porque ya están en las comisiones. Los gastos fijos se cuentan completos aunque el mes no haya terminado.</p>`}
+function utCsv(k,t){const u=utCalc(k),r=[['Ingresos',u.ing],['Comisiones de profesionales',-u.com],['Costo de productos vendidos',-u.cp],['Gastos del mes',-u.gvT],['Gastos fijos mensuales',-u.fjT],['Utilidad',u.uti]];
+  Object.entries(u.cat).forEach(([c,m])=>r.push(['  gasto: '+(c=='sin'?'Sin categoría':gcatLbl(c)),-m]));u.fj.forEach(f=>r.push(['  fijo: '+f.concepto,-f.monto]));
+  bajar(`utilidad-${t}.csv`,toCsv(['concepto','valor'],r.map(([a,b])=>({concepto:a,valor:Math.round(b)}))),'csv')}
+/* ---------- pagos a profesionales ---------- */
+async function showLiq(){$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');
+  LQ={saldo:[],pagos:[],err:false};
+  try{const[a,b]=await Promise.all([api('rpc/saldo_pros',{method:'POST',body:'{}'}),api('pagos_pro?select=*&order=fecha.desc,creado.desc&limit=30')]);LQ.saldo=a;LQ.pagos=b}catch(e){LQ.err=true}drawLiq()}
+const liqRest=r=>Math.round(+r.comision+ +r.propinas-+r.pagado);
+function drawLiq(){const Q=LQ,rows=Q.saldo.filter(r=>+r.comision+ +r.propinas+ +r.pagado>0||pros.find(p=>p.id==r.profesional_id)?.activo!==false);
+  const desde=Q.saldo[0]?.desde||today;
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Pagos a profesionales</h3>
+  ${Q.err?'<p class="msg">Falta ejecutar el SQL de finanzas (finanzas.sql) en Supabase.</p>':`
+  <p class="mu">Se cuenta lo generado desde el <b>${desde}</b>. Por pagar = comisión + propinas − lo ya pagado (incluye adelantos).</p>
+  <table class="tb"><tr><th>Profesional</th><th>Comisión</th><th>Propinas</th><th>Pagado</th><th>Por pagar</th><th></th></tr>${rows.map(r=>{const q=liqRest(r);return `<tr><td>${esc(proNom(r.profesional_id)||'—')}</td><td>${money(r.comision)}</td><td>${money(r.propinas)}</td><td>${money(r.pagado)}</td><td><b style="color:${q<0?'#ff7b6b':'inherit'}">${money(q)}</b>${q<0?'<br><small>adelanto por descontar</small>':''}</td><td><button data-a="lpay" data-id="${r.profesional_id}">Pagar</button></td></tr>`}).join('')||'<tr><td colspan="6">Sin movimientos.</td></tr>'}</table>
+  <div class="dh">Últimos pagos</div>
+  ${Q.pagos.map(x=>`<div class="c" style="--pc:#d4af37"><h3><span>${esc(proNom(x.profesional_id)||'—')} · ${x.tipo=='adelanto'?'Adelanto':'Comisión'}</span><span>${money(x.monto)}</span></h3><p>${x.fecha} · ${metLbl(x.metodo)}${x.nota?' · '+esc(x.nota):''}</p><div class="acts"><button data-a="lslip" data-id="${x.id}">🧾 Comprobante</button><button data-a="ldel" data-id="${x.id}">Anular</button></div></div>`).join('')||'<p class="mu">Aún no hay pagos registrados.</p>'}
+  <div class="dh">Cambiar desde cuándo se cuenta</div>
+  <div class="row"><input type="date" id="lq_d" value="${desde}" style="margin:0"><button data-a="lfecha">Guardar fecha</button></div>
+  <p class="mu" style="font-size:12px">Normalmente se pone el primer día que empiezas a usar esta sección. Los pagos anteriores a esa fecha no se descuentan.</p>`}
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cerrar</button><button data-a="rep">📊 Reportes</button></div></div>`}
+function liqForm(pid){const r=LQ.saldo.find(x=>x.profesional_id==pid),q=r?liqRest(r):0;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Pagar a ${esc(proNom(pid))}</h3><p class="mu">Por pagar ahora: <b>${money(q)}</b></p>
+  <label>Tipo<select id="lp_t"><option value="comision">Pago de comisión</option><option value="adelanto">Adelanto</option></select></label>
+  <div class="row2"><label>Valor<input id="lp_m" type="number" min="0" inputmode="numeric" value="${q>0?q:''}"></label><label>Método${metSel('lp_k','efectivo')}</label></div>
+  <label>Nota (opcional)<input id="lp_n"></label><p class="mu" style="font-size:12px">Si pagas en efectivo, sale como gasto de la caja de hoy.</p>
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="liq">Cancelar</button><button class="pr" data-a="lsave" data-id="${pid}">Registrar pago</button></div></div>`}
+function slipTxt(x,q){const sep='--------------------------------';return [`${CFG.NOMBRE} · Centro de Belleza y Barbería`,x.tipo=='adelanto'?'Comprobante de adelanto':'Comprobante de pago de comisión',new Date(x.fecha+'T12:00').toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'}),sep,'Profesional: '+proNom(x.profesional_id),'Valor: '+money(x.monto),'Método: '+metLbl(x.metodo),...(x.nota?['Nota: '+x.nota]:[]),...(q!=null?[sep,'Saldo por pagar: '+money(q)]:[]),sep,'Firma: ____________________'].join('\n')}
+function liqSlip(x,q){$('#m').innerHTML=`<div class="sh"><div id="rcp"><pre class="rtxt">${esc(slipTxt(x,q))}</pre></div><div class="acts" style="flex-wrap:wrap"><button class="pr" data-a="rpr">🖨 Imprimir</button><button data-a="liq">← Volver</button><button data-a="close">Cerrar</button></div></div>`;$('#m').classList.add('on')}
 /* ---------- citas de mañana (recordatorio manual por WhatsApp) ---------- */
 const manMark=()=>{try{return JSON.parse(localStorage.getItem('sh-wam')||'{}')}catch(e){return{}}};
 async function showMan(){$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');
@@ -668,8 +783,8 @@ async function respaldo(k){const f=$('#fe');f.textContent='Preparando la descarg
   try{
     if(k=='rjson'){const [ci,se,pr,bl,ho,no]=await Promise.all([qCitas('&order=fecha,hora,id'),fetchAll('servicios?select=*&order=id'),fetchAll('profesionales?select=*&order=id'),fetchAll('bloqueos?select=*&order=id'),fetchAll('horarios?select=*&order=id').catch(()=>[]),fetchAll('clientes_notas?select=*&order=telefono').catch(()=>[])]);
       const [ve,ga,ca]=await Promise.all([fetchAll('ventas?select=*,venta_items(*),venta_pagos(*)&order=id').catch(()=>[]),fetchAll('gastos?select=*&order=id').catch(()=>[]),fetchAll('cajas?select=*&order=fecha').catch(()=>[])]);
-      const [pd,sm]=await Promise.all([fetchAll('productos?select=*&order=nombre').catch(()=>[]),fetchAll('stock_mov?select=*&order=creado').catch(()=>[])]);
-      bajar(`respaldo-sh-${today}.json`,JSON.stringify({creado:new Date().toISOString(),productos:pd,stock_mov:sm,citas:ci,servicios:se,profesionales:pr,bloqueos:bl,horarios:ho,clientes_notas:no,ventas:ve,gastos:ga,cajas:ca},null,1),'json')}
+      const [pd,sm,rg]=await Promise.all([fetchAll('productos?select=*&order=nombre').catch(()=>[]),fetchAll('stock_mov?select=*&order=creado').catch(()=>[]),fetchAll('cliente_registros?select=*&order=creado').catch(()=>[])]);
+      bajar(`respaldo-sh-${today}.json`,JSON.stringify({creado:new Date().toISOString(),productos:pd,stock_mov:sm,cliente_registros:rg,citas:ci,servicios:se,profesionales:pr,bloqueos:bl,horarios:ho,clientes_notas:no,ventas:ve,gastos:ga,cajas:ca},null,1),'json')}
     else if(k=='rcitas'){const ci=await qCitas('&order=fecha,hora,id');
       bajar(`citas-sh-${today}.csv`,toCsv(['fecha','hora','cliente','telefono','profesional','servicios','duracion_min','estado','valor','notas'],ci.map(c=>({fecha:c.fecha,hora:c.hora.slice(0,5),cliente:c.cliente,telefono:c.telefono,profesional:proNom(c.profesional_id),servicios:svNames(c),duracion_min:c.dur_min,estado:c.estado,valor:c.estado=='atendida'?valor(c):'',notas:c.notas}))),'csv')}
     else{await loadCli();if(CLIERR)throw new Error('cli');
@@ -706,7 +821,7 @@ function render(){
   const precio=id=>svcs.find(s=>s.id==id)?.precio||0,days=[...new Set(list.map(c=>c.fecha))];
   const cnt=id=>citas.filter(c=>live(c)&&(!id||c.profesional_id==id)).length;
   const card=(c,eq)=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
-    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p><div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button></div></div>`};
+    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p>${aboSum(c.id)>0?`<p style="color:#6fcf97;font-weight:700">💰 Abono: ${money(aboSum(c.id))}${c.estado=='cancelada'?' (sin usar)':''}</p>`:''}<div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button>${open||aboSum(c.id)>0?`<button data-a="abo" data-id="${c.id}">💰 Abono</button>`:''}</div></div>`};
   cardFn=card;
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
     return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${workTxt(p.id,date)?`<div class="rest">${workTxt(p.id,date)}</div>`:''}${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
@@ -721,7 +836,7 @@ function render(){
   a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools"><button data-a="ref" aria-label="Actualizar">↻</button><button data-a="menu" aria-label="Menú" aria-expanded="false">☰</button></div>
   <div class="menu" id="menu">
     ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
-    <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button>
+    <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button><button data-a="liq">💸 Pagos a profesionales</button>
     <div class="mh">Clientes y equipo</div><button data-a="cli">👤 Clientes</button><button data-a="man">📲 Citas de mañana</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button>
     <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
     <button class="out" data-a="out">Cerrar sesión</button>
@@ -761,6 +876,18 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='inad'){INA=+b.dataset.n;return drawIna()}
   if(a=='wai'){const t=b.dataset.t,c=CLI.find(x=>x.telefono==t);window.open(`https://wa.me/${t}?text=${encodeURIComponent(`Hola ${(c?.nombre||'').split(' ')[0]}, hace tiempo no te vemos por ${CFG.NOMBRE} 💛 Nos encantaría consentirte de nuevo. Reserva tu cita aquí: ${CFG.RESERVA}`)}`,'_blank');const mk=inaMark();mk[t]=today;try{localStorage.setItem('sh-ina',JSON.stringify(mk))}catch(x){}return drawIna()}
   if(a=='pos')return posOpen();
+  if(a=='abo')return showAbo(id);
+  if(a=='rnew')return showReg(b.dataset.t);
+  if(a=='rsave')return regSave();
+  if(a=='fto'){if(b.dataset.u)verFoto(b.dataset.u);return}
+  if(a=='rdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}const r=REGS.find(x=>x.id==id);
+    try{await api('cliente_registros?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}});if(r&&(r.fotos||[]).length)sto('/storage/v1/object/fichas',{method:'DELETE',body:JSON.stringify({prefixes:r.fotos})}).catch(()=>{});note('Registro eliminado.')}catch(x){note('No se pudo eliminar.')}return regLoad(r?r.telefono:'')}
+  if(a=='awa')return aboWa(id);
+  if(a=='asave'){const m=+$('#ab_m').value,f=$('#fe');if(!(m>0)){f.textContent='Escribe el valor del abono.';return}
+    try{await api('rpc/registrar_abono',{method:'POST',body:JSON.stringify({p_cita:id,p_monto:m,p_metodo:$('#ab_t').value,p_nota:$('#ab_n').value})});note('✅ Abono guardado');return showAbo(id)}
+    catch(x){f.textContent=x.status==404?'Falta ejecutar el SQL de abonos en Supabase.':(x.status==400&&x.detail&&!/violates|constraint|syntax|column|function/i.test(x.detail)?x.detail:'No se pudo guardar el abono.')}return}
+  if(a=='adev'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}
+    try{await api('rpc/devolver_abono',{method:'POST',body:JSON.stringify({p_abono:id})});note('Abono devuelto.');return showAbo(b.dataset.c)}catch(x){$('#fe').textContent='No se pudo devolver el abono.'}return}
   if(a=='prod')return showProd();
   if(a=='nprod')return formProd();
   if(a=='eprod')return formProd(id);
@@ -791,7 +918,7 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='rsp'){RSPLIT=!RSPLIT;return drawRecibo()}
   if(a=='ranu'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}try{await api('rpc/anular_venta',{method:'POST',body:JSON.stringify({p_venta:id,p_motivo:'Anulada desde la agenda'})});$('#m').classList.remove('on');await reload(1);note('Venta anulada.')}catch(x){$('#fe').textContent='No se pudo anular la venta.'}return}
   if(a=='capt'){const v=$('#cj_ap').value;if(v===''||+v<0)return note('Escribe la base inicial.');try{await api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({fecha:CJ,apertura:+v})});note('✅ Base guardada.')}catch(x){note('No se pudo guardar la base.')}return showCaja()}
-  if(a=='gadd'){const c=$('#g_c').value.trim(),m=$('#g_m').value;if(c.length<2||m===''||+m<=0)return note('Escribe el concepto y el monto del gasto.');try{await api('gastos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:CJ,concepto:c,monto:+m,metodo:$('#g_t').value})})}catch(x){note('No se pudo guardar el gasto.')}return showCaja()}
+  if(a=='gadd'){const c=$('#g_c').value.trim(),m=$('#g_m').value;if(c.length<2||m===''||+m<=0)return note('Escribe el concepto y el monto del gasto.');try{await api('gastos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:CJ,concepto:c,monto:+m,metodo:$('#g_t').value,categoria:$('#g_k').value})}).catch(x=>x.status==400?api('gastos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({fecha:CJ,concepto:c,monto:+m,metodo:$('#g_t').value})}):Promise.reject(x))}catch(x){note('No se pudo guardar el gasto.')}return showCaja()}
   if(a=='gdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('gastos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}return showCaja()}
   if(a=='ccie'){const v=$('#cj_con').value;if(v===''||+v<0)return note('Escribe el efectivo contado.');const cb={fecha:CJ,apertura:+(CAJ.caja?.apertura||0),contado:+v,cerrada_at:new Date().toISOString()},post=b=>api('cajas?on_conflict=fecha',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(b)});try{try{await post({...cb,esperado:Math.round(CAJ.calc?.esp||0),ventas:Math.round(CAJ.calc?.venta||0)})}catch(e2){await post(cb)}note('✅ Caja cerrada.')}catch(x){note('No se pudo cerrar la caja.')}return showCaja()}
   if(a=='man')return showMan();
@@ -803,9 +930,21 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='dpro')return accSet(id,true);
   if(a=='qpro')return accSet(id,false);
   if(a=='rep')return showRep();
-  if(a=='rm'){const n=+b.dataset.n;if(n)repNav(n);else RA=today;await repLoad();return drawRep()}
-  if(a=='rp'){RP=b.dataset.v;await repLoad();return drawRep()}
-  if(a=='rv'){RV=b.dataset.v;return drawRep()}
+  if(a=='rm'){const n=+b.dataset.n;if(n)repNav(n);else RA=today;await repLoad();if(RV=='uti')await utLoad();return drawRep()}
+  if(a=='rp'){RP=b.dataset.v;if(RV=='uti'&&RP!='mes')RV='pro';await repLoad();if(RV=='uti')await utLoad();return drawRep()}
+  if(a=='rv'){RV=b.dataset.v;if(RV=='uti'){if(RP!='mes'){RP='mes';await repLoad()}drawRep();await utLoad()}return drawRep()}
+  if(a=='fjadd'){const c=$('#fj_c').value.trim(),m=+$('#fj_m').value;if(c.length<2||!(m>0))return note('Escribe el concepto y el monto.');
+    try{await api('gastos_fijos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({concepto:c,monto:m})})}catch(x){note('No se pudo guardar el gasto fijo.')}await utLoad();return drawRep()}
+  if(a=='fjdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('gastos_fijos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}await utLoad();return drawRep()}
+  if(a=='liq')return showLiq();
+  if(a=='lpay')return liqForm(id);
+  if(a=='lsave'){const m=+$('#lp_m').value,f=$('#fe');if(!(m>0)){f.textContent='Escribe el valor.';return}
+    try{const nid=await api('rpc/pagar_profesional',{method:'POST',body:JSON.stringify({p_pro:id,p_monto:m,p_tipo:$('#lp_t').value,p_metodo:$('#lp_k').value,p_nota:$('#lp_n').value})});
+      await showLiq();const x=LQ.pagos.find(y=>y.id==nid),r=LQ.saldo.find(y=>y.profesional_id==id);if(x)return liqSlip(x,r?liqRest(r):null)}
+    catch(x){f.textContent=x.status==404?'Falta ejecutar el SQL de finanzas en Supabase.':(x.status==400&&x.detail&&!/violates|constraint|syntax|column|function/i.test(x.detail)?x.detail:'No se pudo registrar el pago.')}return}
+  if(a=='lslip'){const x=LQ.pagos.find(y=>y.id==id);if(x)liqSlip(x,null);return}
+  if(a=='ldel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro? Toca otra vez';return}try{await api('rpc/anular_pago_pro',{method:'POST',body:JSON.stringify({p_pago:id})});note('Pago anulado.')}catch(x){note('No se pudo anular.')}return showLiq()}
+  if(a=='lfecha'){const d=$('#lq_d').value;if(!d)return note('Elige la fecha.');try{await api('config_negocio?id=eq.1',{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({liquidar_desde:d})});note('✅ Fecha guardada')}catch(x){note('No se pudo guardar la fecha.')}return showLiq()}
   if(a=='rcsv')return repCsv();
   if(a=='resp')return showResp();
   if(a=='rjson'||a=='rcitas'||a=='rclientes')return respaldo(a);
@@ -817,7 +956,7 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='gs'){const r=b.getBoundingClientRect(),t=+b.dataset.ini+Math.floor((e.clientY-r.top)/30)*30;fsv=[];await ensureCli();return form({fecha:date,hora:tm(t),profesional_id:b.dataset.pro})}
   if(a=='cli')return showCli();
   if(a=='fic')return ficha(b.dataset.t);
-  if(a=='ncli'){const t=b.dataset.t;try{await api('clientes_notas',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({telefono:t,nombre:CLI.find(x=>x.telefono==t)?.nombre||'',notas:$('#n_cli').value.trim(),actualizado:new Date().toISOString()})});NOTAS[t]=$('#n_cli').value.trim();note('✅ Notas guardadas')}catch(x){note('No se pudieron guardar las notas.')}return}
+  if(a=='ncli'){const t=b.dataset.t;try{await api('clientes_notas',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({telefono:t,nombre:CLI.find(x=>x.telefono==t)?.nombre||'',notas:$('#n_cli').value.trim(),alergias:$('#a_cli').value.trim()||null,actualizado:new Date().toISOString()})}).catch(async x=>{if(x.status==400||x.status==404){if($('#a_cli').value.trim())note('Falta ejecutar fichas.sql para guardar alergias.');return api('clientes_notas',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({telefono:t,nombre:CLI.find(x=>x.telefono==t)?.nombre||'',notas:$('#n_cli').value.trim(),actualizado:new Date().toISOString()})})}throw x});NOTAS[t]=$('#n_cli').value.trim();ALER[t]=$('#a_cli').value.trim();note('✅ Guardado')}catch(x){note('No se pudieron guardar las notas.')}return}
   if(a=='wcli'){const t=b.dataset.t;return window.open(`https://wa.me/${t}?text=${encodeURIComponent('Hola '+(CLI.find(x=>x.telefono==t)?.nombre||'')+', te escribimos de '+CFG.NOMBRE+'.')}`,'_blank')}
   if(a=='ncita'){const t=b.dataset.t,c=CLI.find(x=>x.telefono==t);fsv=[];return form({fecha:date,hora:'09:00',profesional_id:fp||prosA()[0]?.id,cliente:c?.nombre||'',telefono:t})}
   if(a=='asv'||a=='rsv'){readSv();const d=readForm();if(a=='asv'){const nx=svcs.find(s=>s.activo!==false&&!fsv.includes(s.id));if(nx)fsv.push(nx.id)}else fsv.splice(+b.dataset.i,1);return form(d)}
