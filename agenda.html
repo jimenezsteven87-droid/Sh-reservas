@@ -111,6 +111,7 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
 @media(min-width:900px){.tabbar{display:none}.week{max-width:520px}}
 .sh .stats{gap:0;background:#0e0e0e;border:1px solid var(--bd);border-radius:16px;padding:10px 0}.sh .stats div{background:none;border:0;border-radius:0;border-right:1px solid #222;padding:4px 6px}.sh .stats div:last-child{border:0}
 .sh .c{border-radius:16px}
+.prow select{flex:1 1 42%;min-width:0}.prow input{flex:1 1 42%;min-width:110px}.prow button{flex:none}
 </style></head><body><main id="app"></main><div id="m"></div><div id="tt"></div>
 <script>
 const CFG={URL:'https://fbyhcgkyzegsruvydebi.supabase.co',KEY:'sb_publishable_M3xs3ZOTv2JDoB25vIe19A_BUeDFoKp',RESERVA:'https://jimenezsteven87-droid.github.io/Sh-reservas/reserva.html',NOMBRE:'S&H'};
@@ -412,7 +413,7 @@ function posRead(){const v=id=>$('#'+id)?.value;
   POS.pagos.forEach((p,n)=>{p.m=v(`pg_${n}_m`)||p.m;p.v=v(`pg_${n}_v`)??p.v})}
 function posTot(){const k=posCalc(),el=$('#pos_tot');if(!el)return;
   el.innerHTML=`<div><span>Subtotal</span><b>${money(k.sub)}</b></div>${k.d?`<div><span>Descuento</span><b>-${money(k.d)}</b></div>`:''}<div><span>Total</span><b>${money(k.tot)}</b></div>${k.prop?`<div><span>Propina</span><b>${money(k.prop)}</b></div>`:''}${k.ab?`<div><span>Total con propina</span><b>${money(k.cobrar)}</b></div><div style="color:#6fcf97"><span>Abono ya recibido</span><b>-${money(k.ab)}</b></div>`:''}<div class="big"><span>${k.ab?'Cobrar hoy':'A cobrar'}</span><b>${money(k.pagar)}</b></div><div style="color:${k.dif==0?'#6fcf97':'#ff7b6b'}"><span>${k.dif==0?'Pago completo ✓':(k.dif>0?'Falta por registrar':'Sobra en el pago')}</span><b>${k.dif==0?'':money(Math.abs(k.dif))}</b></div>`}
-function posInput(t){posRead();if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().pagar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
+function posInput(t){posRead();if(POS.pagos.length==2&&(t.id=='pg_0_v'||t.id=='pg_1_v')){const k=posCalc(),o=t.id=='pg_0_v'?0:1,i=1-o,rest=Math.max(0,k.pagar-(+POS.pagos[o].v||0));POS.pagos[i].v=rest||'';const e=$('#pg_'+i+'_v');if(e)e.value=POS.pagos[i].v;posTot();return}if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().pagar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
 function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';const P=POS;
   const po=sel=>'<option value="">—</option>'+prosA().map(p=>`<option value="${p.id}"${p.id==sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">${P.cita?'Cobrar cita':'Nueva venta'}</h3>
@@ -426,7 +427,7 @@ function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';c
   <div class="row2"><label>Descuento<div class="row" style="margin-top:8px"><input id="pos_desc" type="number" min="0" inputmode="numeric" value="${P.desc}" style="margin:0"><select id="pos_dtipo" style="margin:0;max-width:72px"><option value="$"${P.dtipo=='$'?' selected':''}>$</option><option value="%"${P.dtipo=='%'?' selected':''}>%</option></select></div></label><label>Propina<input id="pos_prop" type="number" min="0" step="500" inputmode="numeric" value="${P.prop}"></label></div>
   <div class="tbox" id="pos_tot"></div>
   <div class="dh">Pago</div>
-  ${P.pagos.map((p,n)=>`<div class="row" style="margin-top:6px">${metSel('pg_'+n+'_m',p.m)}<input id="pg_${n}_v" type="number" min="0" inputmode="numeric" placeholder="Monto" value="${p.v}">${P.pagos.length>1?`<button data-a="pgd" data-i="${n}">✕</button>`:''}</div>`).join('')}
+  ${P.pagos.map((p,n)=>`<div class="row prow" style="margin-top:6px">${metSel('pg_'+n+'_m',p.m)}<input id="pg_${n}_v" type="number" min="0" inputmode="numeric" placeholder="Monto" value="${p.v}">${P.pagos.length>1?`<button data-a="pgd" data-i="${n}">✕</button>`:''}</div>`).join('')}
   <button data-a="pga" style="margin-top:8px">+ Dividir el pago</button>
   <label>Nota (opcional)<input id="pos_nota" value="${esc(P.nota)}"></label>
   <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cancelar</button><button class="pr" data-a="pguardar">Cobrar</button></div></div>`;
@@ -940,7 +941,7 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='impt')return impTest();
   if(a=='pid'){posRead();POS.items.splice(+b.dataset.i,1);return posRender()}
   if(a=='pprod'){posRead();POS.items.push({tipo:'producto',servicio_id:null,descripcion:'',cantidad:1,precio:'',pro:''});return posRender()}
-  if(a=='pga'){posRead();POS.pagos.push({m:'efectivo',v:''});return posRender()}
+  if(a=='pga'){posRead();POS.pagos.push({m:POS.pagos.some(x=>x.m=='nequi')?'efectivo':'nequi',v:''});return posRender()}
   if(a=='pgd'){posRead();POS.pagos.splice(+b.dataset.i,1);return posRender()}
   if(a=='pguardar')return posSave();
   if(a=='vrc')return posRecibo(id);
