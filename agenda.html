@@ -93,6 +93,24 @@ textarea{width:100%;padding:12px;margin-top:8px;border:1px solid #3d3314;border-
  .lst{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}.lst .c{margin:0}
  .gcol{flex:1 0 190px}.gb{font-size:13px}
 }
+
+/* ---- rediseño: cabecera, tira de días, tarjetas con hora y barra inferior ---- */
+.hi{font-size:12px;color:var(--mu);font-weight:500}.ttl{font-size:19px;font-weight:700;line-height:1.15}.ttl::first-letter{text-transform:uppercase}
+.brand .logo{width:46px}.brand .hd{flex:none}
+.week{display:flex;gap:6px;align-items:stretch;margin:0 0 8px}
+.week .wn{flex:none;width:24px;padding:0;background:none;border:0;font-size:22px;color:var(--g2)}
+.week .wd{flex:1;min-width:0;padding:8px 0;border-radius:14px;background:#111;border:1px solid #1d1a10;color:var(--mu);font-size:11px;font-weight:500;text-align:center}
+.wd b{display:block;font-size:16px;color:#fff;margin-top:3px}.wd.on{background:linear-gradient(135deg,var(--g2),var(--g));color:#3a2d08;border:0}.wd.on b{color:#1a1405}.wd.td:not(.on){border-color:var(--g)}
+.wtools{display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px}.wtools button{padding:6px 12px;font-size:12px}
+.kpi{gap:0;background:#111;border:1px solid var(--bd);border-radius:16px;padding:12px 0}.kpi div{background:none;border:0;border-radius:0;border-right:1px solid #222}.kpi div:last-child{border:0}
+.ev{display:flex;gap:10px}.evh{width:48px;flex:none;padding-top:12px;font-weight:700;font-size:15px}.evh small{display:block;color:var(--mu);font-weight:400;font-size:11px;margin-top:1px}
+.ev .c{flex:1;min-width:0;border-radius:16px}.ev .c h3 .nm{font-size:16px;color:#fff;margin:0;font-weight:700}
+.tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;height:70px;z-index:8;background:#0b0b0bf5;border-top:1px solid var(--bd);padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-sizing:content-box}
+.tabbar button{flex:1;background:none;border:0;color:var(--mu);font-size:11px;font-weight:500;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;border-radius:0;filter:none}.tabbar i{font-style:normal;font-size:21px}.tabbar .on{color:var(--g2)}
+@media(max-width:899px){main{padding-bottom:120px}.fab{bottom:92px}.menu{position:fixed;top:auto;bottom:92px;right:12px}}
+@media(min-width:900px){.tabbar{display:none}.week{max-width:520px}}
+.sh .stats{gap:0;background:#0e0e0e;border:1px solid var(--bd);border-radius:16px;padding:10px 0}.sh .stats div{background:none;border:0;border-radius:0;border-right:1px solid #222;padding:4px 6px}.sh .stats div:last-child{border:0}
+.sh .c{border-radius:16px}
 </style></head><body><main id="app"></main><div id="m"></div><div id="tt"></div>
 <script>
 const CFG={URL:'https://fbyhcgkyzegsruvydebi.supabase.co',KEY:'sb_publishable_M3xs3ZOTv2JDoB25vIe19A_BUeDFoKp',RESERVA:'https://jimenezsteven87-droid.github.io/Sh-reservas/reserva.html',NOMBRE:'S&H'};
@@ -679,13 +697,18 @@ function utCsv(k,t){const u=utCalc(k),r=[['Ingresos',u.ing],['Comisiones de prof
   bajar(`utilidad-${t}.csv`,toCsv(['concepto','valor'],r.map(([a,b])=>({concepto:a,valor:Math.round(b)}))),'csv')}
 /* ---------- pagos a profesionales ---------- */
 async function showLiq(){$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');
-  LQ={saldo:[],pagos:[],err:false};
-  try{const[a,b]=await Promise.all([api('rpc/saldo_pros',{method:'POST',body:'{}'}),api('pagos_pro?select=*&order=fecha.desc,creado.desc&limit=30')]);LQ.saldo=a;LQ.pagos=b}catch(e){LQ.err=true}drawLiq()}
+  LQ={saldo:[],pagos:[],pp:[],k:null,err:false};
+  try{const[d1,d2]=repRange();const[a,b,c]=await Promise.all([api('rpc/saldo_pros',{method:'POST',body:'{}'}),api('pagos_pro?select=*&order=fecha.desc,creado.desc&limit=30'),api(`pagos_pro?select=*&fecha=gte.${d1}&fecha=lte.${d2}`),repLoad()]);LQ.saldo=a;LQ.pagos=b;LQ.pp=c;LQ.k=repCalc()}catch(e){LQ.err=true}drawLiq()}
 const liqRest=r=>Math.round(+r.comision+ +r.propinas-+r.pagado);
 function drawLiq(){const Q=LQ,rows=Q.saldo.filter(r=>+r.comision+ +r.propinas+ +r.pagado>0||pros.find(p=>p.id==r.profesional_id)?.activo!==false);
   const desde=Q.saldo[0]?.desde||today;
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Pagos a profesionales</h3>
   ${Q.err?'<p class="msg">Falta ejecutar el SQL de finanzas (finanzas.sql) en Supabase.</p>':`
+  <div class="seg" style="margin-top:10px">${[['dia','Día'],['sem','Semana'],['mes','Mes']].map(([v,n])=>`<button data-a="lp" data-v="${v}" class="${RP==v?'on':''}">${n}</button>`).join('')}</div>
+  <div class="row"><button data-a="lm" data-n="-1">‹</button><b style="flex:1;text-align:center">${esc(repTitle())}</b><button data-a="lm" data-n="1">›</button><button data-a="lm" data-n="0">Hoy</button></div>
+  <table class="tb"><tr><th>Profesional</th><th>Ingresos</th><th>Comisión</th><th>Propinas</th><th>Total del periodo</th><th>Pagado</th></tr>${(Q.k?Q.k.pl:[]).map(r=>{const pg=Q.pp.filter(x=>x.profesional_id==r.id).reduce((a,x)=>a+ +x.monto,0);return `<tr><td>${esc(r.nombre)}</td><td>${money(r.ing)}</td><td>${money(r.com)}</td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td><td>${money(pg)}</td></tr>`}).join('')||'<tr><td colspan="6">Sin ventas en este periodo.</td></tr>'}${Q.k&&Q.k.pl.length?`<tr><td><b>Total</b></td><td><b>${money(Q.k.all.ing)}</b></td><td><b>${money(Q.k.all.com)}</b></td><td><b>${money(Q.k.all.prop)}</b></td><td><b>${money(Q.k.all.com+Q.k.all.prop)}</b></td><td><b>${money(Q.pp.reduce((a,x)=>a+ +x.monto,0))}</b></td></tr>`:''}</table>
+  <p class="mu" style="font-size:12px">La semana va de lunes a domingo, así que el domingo ves lo de toda la semana para pagar.</p>
+  <div class="dh">Saldo acumulado por pagar</div>
   <p class="mu">Se cuenta lo generado desde el <b>${desde}</b>. Por pagar = comisión + propinas − lo ya pagado (incluye adelantos).</p>
   <table class="tb"><tr><th>Profesional</th><th>Comisión</th><th>Propinas</th><th>Pagado</th><th>Por pagar</th><th></th></tr>${rows.map(r=>{const q=liqRest(r);return `<tr><td>${esc(proNom(r.profesional_id)||'—')}</td><td>${money(r.comision)}</td><td>${money(r.propinas)}</td><td>${money(r.pagado)}</td><td><b style="color:${q<0?'#ff7b6b':'inherit'}">${money(q)}</b>${q<0?'<br><small>adelanto por descontar</small>':''}</td><td><button data-a="lpay" data-id="${r.profesional_id}">Pagar</button></td></tr>`}).join('')||'<tr><td colspan="6">Sin movimientos.</td></tr>'}</table>
   <div class="dh">Últimos pagos</div>
@@ -820,8 +843,9 @@ function render(){
   const list=citas.filter(c=>!fp||c.profesional_id==fp),act=list.filter(live);
   const precio=id=>svcs.find(s=>s.id==id)?.precio||0,days=[...new Set(list.map(c=>c.fecha))];
   const cnt=id=>citas.filter(c=>live(c)&&(!id||c.profesional_id==id)).length;
-  const card=(c,eq)=>{const s=svcs.find(x=>x.id==c.servicio_id),p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada';
-    return `<div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span><em>${h}</em> – ${tm(mn(h)+c.dur_min)}</span><span class="b ${c.estado}">${c.estado}</span></h3><div class="nm">${esc(c.cliente)}</div><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p>${aboSum(c.id)>0?`<p style="color:#6fcf97;font-weight:700">💰 Abono: ${money(aboSum(c.id))}${c.estado=='cancelada'?' (sin usar)':''}</p>`:''}<div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button data-a="st" data-id="${c.id}" data-v="atendida">Atendida</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}">💬 WhatsApp</button>${open||aboSum(c.id)>0?`<button data-a="abo" data-id="${c.id}">💰 Abono</button>`:''}</div></div>`};
+  const durT=m=>m<60?m+' min':(Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':''));
+  const card=(c,eq)=>{const p=pros.find(x=>x.id==c.profesional_id),h=c.hora.slice(0,5),open=c.estado=='pendiente'||c.estado=='confirmada',ab=aboSum(c.id);
+    return `<div class="ev"><div class="evh">${h}<small>${durT(c.dur_min)}</small></div><div class="c ${c.estado}" style="--pc:${p?.color||'#d4af37'}"><h3><span class="nm">${esc(c.cliente)}</span><span class="b ${c.estado}">${c.estado}</span></h3><p>${esc(svNames(c))}${eq?'':' · '+esc(p?.nombre||'')}${c.notas?' · '+esc(c.notas):''}</p><p>${esc(c.telefono)}</p>${ab>0?`<p style="color:#6fcf97;font-weight:700">💰 Abono: ${money(ab)}${c.estado=='cancelada'?' (sin usar)':''}</p>`:''}<div class="acts">${c.estado=='pendiente'?`<button class="pr" data-a="st" data-id="${c.id}" data-v="confirmada">Confirmar</button>`:''}${open?`<button class="${c.estado=='confirmada'?'pr':''}" data-a="st" data-id="${c.id}" data-v="atendida">Cobrar</button><button data-a="mv" data-id="${c.id}">Mover</button><button data-a="st" data-id="${c.id}" data-v="cancelada">Cancelar</button>`:''}<button data-a="wa" data-id="${c.id}" aria-label="WhatsApp">💬</button>${open||ab>0?`<button data-a="abo" data-id="${c.id}">💰 Abono</button>`:''}</div></div></div>`};
   cardFn=card;
   const col=p=>{const mine=citas.filter(c=>c.profesional_id==p.id),n=mine.filter(live).length,r=restOf(p.id,date);
     return `<section class="col"><div class="ch" style="--pc:${p.color}"><b>${esc(p.nombre)}${p.activo===false?' (oculto)':''}</b><span>${n?n+(n==1?' cita':' citas'):'Libre'}</span></div>${workTxt(p.id,date)?`<div class="rest">${workTxt(p.id,date)}</div>`:''}${r.map(b=>`<div class="rest">☕ Descanso · ${hrs(b)}${b.motivo?' · '+esc(b.motivo):''}</div>`).join('')}${mine.length?mine.map(c=>card(c,1)).join(''):'<p class="mu">Sin citas este día.</p>'}</section>`};
@@ -833,7 +857,8 @@ function render(){
   else if(!list.length)body='<p class="mu" style="text-align:center;margin-top:30px">No hay citas en este periodo.</p>';
   else if(wk)body=days.map(d=>`<div class="dh">${dl(d)}</div>`+'<div class="lst">'+list.filter(c=>c.fecha==d).map(c=>card(c)).join('')+'</div>').join('');
   else body=`<div class="dh">${dl(date)}</div>`+'<div class="lst">'+list.map(c=>card(c)).join('')+'</div>';
-  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div class="tag">AGENDA</div></div><div class="tools"><button data-a="ref" aria-label="Actualizar">↻</button><button data-a="menu" aria-label="Menú" aria-expanded="false">☰</button></div>
+  const hh=new Date().getHours(),greet=hh<12?'Buenos días':hh<19?'Buenas tardes':'Buenas noches',ws=dow1(date),WD=['L','M','M','J','V','S','D'];
+  a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div><div class="hi">${greet}</div><div class="ttl">${esc(dl(date))}</div></div></div><div class="tools"><button data-a="ref" aria-label="Actualizar">↻</button><button data-a="menu" aria-label="Menú" aria-expanded="false">☰</button></div>
   <div class="menu" id="menu">
     ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
     <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button><button data-a="liq">💸 Pagos a profesionales</button>
@@ -841,11 +866,13 @@ function render(){
     <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
     <button class="out" data-a="out">Cerrar sesión</button>
   </div></div>
-  <div class="row"><button data-a="nav" data-n="-1">‹</button><input type="date" id="dt" value="${date}"><button data-a="nav" data-n="1">›</button><button data-a="nav" data-n="0">Hoy</button></div>
+  <div class="week"><button class="wn" data-a="wk" data-n="-1" aria-label="Semana anterior">‹</button>${[0,1,2,3,4,5,6].map(i=>{const d=add(ws,i);return `<button class="wd${d==date?' on':''}${d==today?' td':''}" data-a="day" data-d="${d}">${WD[i]}<b>${+d.slice(8)}</b></button>`}).join('')}<button class="wn" data-a="wk" data-n="1" aria-label="Semana siguiente">›</button></div>
+  <div class="wtools"><button data-a="nav" data-n="0">Hoy</button><button data-a="pick" aria-label="Elegir fecha">📅 Fecha</button><input type="date" id="dt" value="${date}" tabindex="-1" aria-hidden="true" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px"></div>
   <div class="seg"><button data-a="mode" data-v="cal" class="${mode=='cal'?'on':''}">Calendario</button><button data-a="mode" data-v="eq" class="${mode=='eq'?'on':''}">Equipo</button><button data-a="mode" data-v="lista" class="${mode=='lista'?'on':''}">Lista</button><button data-a="mode" data-v="sem" class="${mode=='sem'?'on':''}">Semana</button></div>
   <div class="chips"><button class="chip ${fp?'':'on'}" data-a="fp" data-v="">Todos <i>${cnt()}</i></button>${prosA().map(p=>`<button class="chip ${fp==p.id?'on':''}" style="--pc:${p.color}" data-a="fp" data-v="${p.id}"><span class="d"></span>${esc(p.nombre)} <i>${cnt(p.id)}</i></button>`).join('')}</div>
-  <div class="stats"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+valor(c),0))}</b><span>cobrado</span></div></div>
-  ${err?`<div class="msg">${esc(err)}</div>`:''}${respBanner()}${body}<button class="pr fab" data-a="new">+</button>`}
+  <div class="stats kpi"><div><b>${act.length}</b><span>citas</span></div><div><b>${list.filter(c=>c.estado=='pendiente').length}</b><span>por confirmar</span></div><div><b>${money(list.filter(c=>c.estado=='atendida').reduce((s,c)=>s+valor(c),0))}</b><span>cobrado</span></div></div>
+  ${err?`<div class="msg">${esc(err)}</div>`:''}${respBanner()}${body}<button class="pr fab" data-a="new">+</button>
+  <nav class="tabbar"><button class="on" data-a="agenda"><i>📅</i>Agenda</button><button data-a="caja"><i>💵</i>Caja</button><button data-a="cli"><i>👥</i>Clientes</button><button data-a="rep"><i>📊</i>Reportes</button><button data-a="menu" aria-expanded="false"><i>⋯</i>Más</button></nav>`}
 
 document.addEventListener('click',async e=>{const mu=$('#menu');
   if(mu&&mu.classList.contains('on')&&!e.target.closest('[data-a=menu]')&&!(e.target.closest('#menu')&&!e.target.closest('button')))mu.classList.remove('on');
@@ -856,6 +883,10 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}ROL={rol:'dueno'};PS='no';S=null;return render()}
   if(a=='nav'){const n=+b.dataset.n;date=n?add(date,n*(mode=='sem'?7:1)):today;return reload()}
   if(a=='mode'){mode=b.dataset.v;return reload()}
+  if(a=='wk'){date=add(date,7*(+b.dataset.n));return reload()}
+  if(a=='day'){date=b.dataset.d;return reload()}
+  if(a=='pick'){const i=$('#dt');try{i.showPicker()}catch(x){i.focus();i.click()}return}
+  if(a=='agenda'){$('#m').classList.remove('on');window.scrollTo({top:0,behavior:'smooth'});return}
   if(a=='fp'){fp=b.dataset.v;return render()}
   if(a=='ref'){await loadBl();return reload()}
   if(a=='st'){if(b.dataset.v=='cancelada'&&!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}if(b.dataset.v=='atendida')return cobrar(id);$('#m').classList.remove('on');return upd(id,{estado:b.dataset.v})}
@@ -936,7 +967,9 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='fjadd'){const c=$('#fj_c').value.trim(),m=+$('#fj_m').value;if(c.length<2||!(m>0))return note('Escribe el concepto y el monto.');
     try{await api('gastos_fijos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({concepto:c,monto:m})})}catch(x){note('No se pudo guardar el gasto fijo.')}await utLoad();return drawRep()}
   if(a=='fjdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('gastos_fijos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}await utLoad();return drawRep()}
-  if(a=='liq')return showLiq();
+  if(a=='liq'){if(!LQ){RP='sem';RA=today}return showLiq()}
+  if(a=='lp'){RP=b.dataset.v;return showLiq()}
+  if(a=='lm'){const n=+b.dataset.n;if(n)repNav(n);else RA=today;return showLiq()}
   if(a=='lpay')return liqForm(id);
   if(a=='lsave'){const m=+$('#lp_m').value,f=$('#fe');if(!(m>0)){f.textContent='Escribe el valor.';return}
     try{const nid=await api('rpc/pagar_profesional',{method:'POST',body:JSON.stringify({p_pro:id,p_monto:m,p_tipo:$('#lp_t').value,p_metodo:$('#lp_k').value,p_nota:$('#lp_n').value})});
