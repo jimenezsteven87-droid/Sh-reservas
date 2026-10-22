@@ -221,8 +221,8 @@ async function watch(silent){
   if(msgs.length){note(msgs.join('  ·  '));if(needTap)note('Toca la pantalla una vez para activar el sonido. '+msgs[0])}
   if(chg||msgs.length){await reload(1);return true}return false}
 const CAT={dama:'Dama',caballero:'Caballero',todos:'Para todos'};
-const SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo,reserva_online&order=nombre',SVQ1='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
-async function loadSv(){try{svcs=await api(SVQ)}catch(e){try{svcs=await api(SVQ1)}catch(e2){svcs=await api(SVQ0)}}}
+const SVQM='servicios?select=id,nombre,dur_min,precio,categoria,activo,reserva_online,usa_material&order=nombre',SVQ='servicios?select=id,nombre,dur_min,precio,categoria,activo,reserva_online&order=nombre',SVQ1='servicios?select=id,nombre,dur_min,precio,categoria,activo&order=nombre',SVQ0='servicios?select=id,nombre,dur_min,precio&order=nombre';
+async function loadSv(){try{svcs=await api(SVQM)}catch(e0){try{svcs=await api(SVQ)}catch(e){try{svcs=await api(SVQ1)}catch(e2){svcs=await api(SVQ0)}}}}
 function showSv(){
   const g=k=>svcs.filter(s=>(s.categoria||'todos')==k);
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Servicios y precios</h3>
@@ -236,14 +236,16 @@ function formSv(id){const s=svcs.find(x=>x.id==id)||{nombre:'',categoria:'dama',
   <label>Duración (minutos)<input id="s_dur" type="number" min="5" max="480" step="5" value="${s.dur_min}"></label>
   <label>Precio (0 si varía)<input id="s_pre" type="number" min="0" step="500" value="${s.precio||0}"></label>
   <label>Mostrar en la página de reservas<select id="s_act"><option value="1"${s.activo!==false?' selected':''}>Sí</option><option value="0"${s.activo===false?' selected':''}>No (ocultar)</option></select></label>
+  <label>Descuenta material (tintes, keratinas)<select id="s_um"><option value="0"${s.usa_material?'':' selected'}>No</option><option value="1"${s.usa_material?' selected':''}>Sí, se gasta material en este servicio</option></select></label>
   <label>Reserva en línea<select id="s_ro"><option value="1"${s.reserva_online!==false?' selected':''}>Sí, el cliente la reserva solo</option><option value="0"${s.reserva_online===false?' selected':''}>No, solo con valoración previa</option></select></label>
   <div class="msg" id="fe"></div><div class="acts"><button data-a="sv">Volver</button><button class="pr" data-a="ssv" data-id="${id||''}">Guardar</button></div></div>`}
 async function saveSv(id){const v=k=>$('#s_'+k).value.trim(),f=$('#fe');
   const o={nombre:v('nombre'),categoria:v('cat'),dur_min:+v('dur'),precio:+v('pre')||0,activo:v('act')=='1',reserva_online:v('ro')=='1'};
   if(o.nombre.length<2){f.textContent='Escribe el nombre del servicio.';return}
   if(!(o.dur_min>=5&&o.dur_min<=480)){f.textContent='La duración debe estar entre 5 y 480 minutos.';return}
-  try{await api(id?'servicios?id=eq.'+id:'servicios',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(o)});await loadSv();showSv()}
-  catch(e){f.textContent=e.status==400&&/categoria|activo|reserva_online/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
+  const gs=b=>api(id?'servicios?id=eq.'+id:'servicios',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)}),um=$('#s_um').value=='1';
+  try{await gs({...o,usa_material:um}).catch(e=>{if(e.status==400&&!um)return gs(o);if(e.status==400)throw Object.assign(e,{falta:1});throw e});await loadSv();showSv()}
+  catch(e){f.textContent=e.falta?'Falta ejecutar materiales.sql en Supabase.':e.status==400&&/categoria|activo|reserva_online/i.test(e.detail||'')?'Falta ejecutar el SQL de categorías en Supabase.':(e.detail||'No se pudo guardar.')}}
 const PAL=['#0e7c86','#c2410c','#7c3aed','#2563eb','#be185d','#16a34a','#ca8a04','#0891b2'];
 const prosA=()=>pros.filter(p=>p.activo!==false);
 let pw=null;
@@ -401,18 +403,22 @@ const cobrar=id=>posOpen({cita:id});
 let POS=null,VR=null,CAJ={ventas:[],gastos:[],caja:null,leg:[],err:false};
 const metSel=(id,sel)=>`<select id="${id}">${METODOS.map(([k,n])=>`<option value="${k}"${sel==k?' selected':''}>${n}</option>`).join('')}</select>`;
 function posCalc(){const sub=POS.items.reduce((a,i)=>a+(+i.cantidad||0)*(+i.precio||0),0);let d=+POS.desc||0;if(POS.dtipo=='%')d=Math.round(sub*Math.min(d,100)/100);d=Math.min(d,sub);
-  const tot=sub-d,prop=+POS.prop||0,cobrar=tot+prop,pag=POS.pagos.reduce((a,p)=>a+(+p.v||0),0);let ab=0;(POS.abonos||[]).forEach(x=>{if(ab+ +x.monto<=cobrar)ab+= +x.monto});const pagar=cobrar-ab;return{sub,d,tot,prop,cobrar,ab,pagar,pag,dif:pagar-pag}}
+  const mat=POS.items.reduce((a,i)=>a+(usaMat(i)?matCosto(i):0),0);const tot=sub-d,prop=+POS.prop||0,cobrar=tot+prop,pag=POS.pagos.reduce((a,p)=>a+(+p.v||0),0);let ab=0;(POS.abonos||[]).forEach(x=>{if(ab+ +x.monto<=cobrar)ab+= +x.monto});const pagar=cobrar-ab;return{sub,d,tot,prop,cobrar,ab,mat,pagar,pag,dif:pagar-pag}}
+const usaMat=i=>i.tipo=='servicio'&&!!svcs.find(x=>x.id==i.servicio_id)?.usa_material;
+const matCosto=i=>(i.mats||[]).reduce((a,m)=>{const p=PROD.find(x=>x.id==m.pid);return a+(+m.q||0)*(+p?.costo||0)},0);
+function matBlock(i,n){if(!usaMat(i))return '';const L=PROD.filter(x=>x.es_material&&x.activo!==false);
+  return `<div class="pm"><div class="mu" style="font-size:12px;margin:8px 0 2px">🧪 Material usado (se descuenta del inventario y antes de la comisión)</div>${(i.mats||[]).map((m,k)=>`<div class="row prow" style="margin-top:6px"><select id="pi_${n}_m${k}p"><option value="">Material…</option>${L.map(x=>`<option value="${x.id}"${x.id==m.pid?' selected':''}>${esc(x.nombre)}${x.stock!=null?' · quedan '+x.stock+' '+esc(x.unidad||''):''}</option>`).join('')}</select><input id="pi_${n}_m${k}q" type="number" min="1" step="1" inputmode="numeric" placeholder="Cantidad" value="${m.q??''}"><button data-a="pmd" data-i="${n}" data-k="${k}" aria-label="Quitar material">✕</button></div>`).join('')}${L.length?`<button data-a="pma" data-i="${n}" style="margin-top:6px">+ Agregar material</button>`:'<p class="mu" style="font-size:12px">Primero crea tus materiales en Productos (tipo Material).</p>'}</div>`}
 async function posOpen(o){o=o||{};await ensureCli();await ensureProd();const c=o.cita?cget(o.cita):null;
   POS={cita:c?c.id:null,cli:c?c.cliente:'',tel:c?(c.telefono||''):'',pro:c?c.profesional_id:(fp||prosA()[0]?.id||''),items:[],desc:'',dtipo:'$',prop:'',pagos:[{m:'efectivo',v:''}],nota:'',abonos:[]};
   if(c){try{POS.abonos=(await api(`abonos?select=id,monto&cita_id=eq.${c.id}&venta_id=is.null&devuelto=eq.false&order=creado`))}catch(e){POS.abonos=[]}}
-  if(c)POS.items=svIds(c).map(id=>{const s=svcs.find(x=>x.id==id);return{tipo:'servicio',servicio_id:id,descripcion:s?.nombre||'Servicio',cantidad:1,precio:s&&s.precio>0?s.precio:'',pro:c.profesional_id}});
+  if(c)POS.items=svIds(c).map(id=>{const s=svcs.find(x=>x.id==id);return{tipo:'servicio',servicio_id:id,descripcion:s?.nombre||'Servicio',cantidad:1,precio:s&&s.precio>0?s.precio:'',pro:c.profesional_id,mats:[]}});
   posRender()}
 function posRead(){const v=id=>$('#'+id)?.value;
   POS.cli=v('pos_cli')??POS.cli;POS.tel=v('pos_tel')??POS.tel;POS.pro=v('pos_pro')??POS.pro;POS.desc=v('pos_desc')??POS.desc;POS.dtipo=v('pos_dtipo')||POS.dtipo;POS.prop=v('pos_prop')??POS.prop;POS.nota=v('pos_nota')??POS.nota;
-  POS.items.forEach((i,n)=>{i.descripcion=v(`pi_${n}_d`)??i.descripcion;i.cantidad=v(`pi_${n}_q`)??i.cantidad;i.precio=v(`pi_${n}_p`)??i.precio;i.pro=v(`pi_${n}_r`)||i.pro});
+  POS.items.forEach((i,n)=>{i.descripcion=v(`pi_${n}_d`)??i.descripcion;i.cantidad=v(`pi_${n}_q`)??i.cantidad;i.precio=v(`pi_${n}_p`)??i.precio;i.pro=v(`pi_${n}_r`)||i.pro;(i.mats||[]).forEach((m,k)=>{m.pid=v(`pi_${n}_m${k}p`)??m.pid;m.q=v(`pi_${n}_m${k}q`)??m.q})});
   POS.pagos.forEach((p,n)=>{p.m=v(`pg_${n}_m`)||p.m;p.v=v(`pg_${n}_v`)??p.v})}
 function posTot(){const k=posCalc(),el=$('#pos_tot');if(!el)return;
-  el.innerHTML=`<div><span>Subtotal</span><b>${money(k.sub)}</b></div>${k.d?`<div><span>Descuento</span><b>-${money(k.d)}</b></div>`:''}<div><span>Total</span><b>${money(k.tot)}</b></div>${k.prop?`<div><span>Propina</span><b>${money(k.prop)}</b></div>`:''}${k.ab?`<div><span>Total con propina</span><b>${money(k.cobrar)}</b></div><div style="color:#6fcf97"><span>Abono ya recibido</span><b>-${money(k.ab)}</b></div>`:''}<div class="big"><span>${k.ab?'Cobrar hoy':'A cobrar'}</span><b>${money(k.pagar)}</b></div><div style="color:${k.dif==0?'#6fcf97':'#ff7b6b'}"><span>${k.dif==0?'Pago completo ✓':(k.dif>0?'Falta por registrar':'Sobra en el pago')}</span><b>${k.dif==0?'':money(Math.abs(k.dif))}</b></div>`}
+  el.innerHTML=`<div><span>Subtotal</span><b>${money(k.sub)}</b></div>${k.d?`<div><span>Descuento</span><b>-${money(k.d)}</b></div>`:''}<div><span>Total</span><b>${money(k.tot)}</b></div>${k.mat?`<div style="color:var(--mu)"><span>Material usado (costo)</span><b>${money(k.mat)}</b></div>`:''}${k.prop?`<div><span>Propina</span><b>${money(k.prop)}</b></div>`:''}${k.ab?`<div><span>Total con propina</span><b>${money(k.cobrar)}</b></div><div style="color:#6fcf97"><span>Abono ya recibido</span><b>-${money(k.ab)}</b></div>`:''}<div class="big"><span>${k.ab?'Cobrar hoy':'A cobrar'}</span><b>${money(k.pagar)}</b></div><div style="color:${k.dif==0?'#6fcf97':'#ff7b6b'}"><span>${k.dif==0?'Pago completo ✓':(k.dif>0?'Falta por registrar':'Sobra en el pago')}</span><b>${k.dif==0?'':money(Math.abs(k.dif))}</b></div>`}
 function posInput(t){posRead();if(POS.pagos.length==2&&(t.id=='pg_0_v'||t.id=='pg_1_v')){const k=posCalc(),o=t.id=='pg_0_v'?0:1,i=1-o,rest=Math.max(0,k.pagar-(+POS.pagos[o].v||0));POS.pagos[i].v=rest||'';const e=$('#pg_'+i+'_v');if(e)e.value=POS.pagos[i].v;posTot();return}if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().pagar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
 function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';const P=POS;
   const po=sel=>'<option value="">—</option>'+prosA().map(p=>`<option value="${p.id}"${p.id==sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
@@ -421,9 +427,9 @@ function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';c
   <div class="row2"><label>Cliente (opcional)<input id="pos_cli" list="dl_cli" autocomplete="off" value="${esc(P.cli)}"></label><label>Celular (para enviar el comprobante)<input id="pos_tel" type="tel" value="${esc(P.tel)}"></label></div>
   <label>Atendido por<select id="pos_pro">${po(P.pro)}</select></label>
   <div class="dh">Servicios y productos</div>
-  ${P.items.map((i,n)=>`<div class="pi"><div class="pi1"><input id="pi_${n}_d" placeholder="${i.tipo=='producto'?'Producto o concepto':'Servicio'}" value="${esc(i.descripcion)}"><button data-a="pid" data-i="${n}" aria-label="Quitar">✕</button></div><div class="pi2"><input id="pi_${n}_q" type="number" min="1" step="1" inputmode="numeric" value="${i.cantidad}"><input id="pi_${n}_p" type="number" min="0" step="500" inputmode="numeric" placeholder="Precio" value="${i.precio}"><select id="pi_${n}_r">${po(i.pro||P.pro)}</select></div></div>`).join('')||'<p class="mu">Agrega al menos un servicio o producto.</p>'}
+  ${P.items.map((i,n)=>`<div class="pi"><div class="pi1"><input id="pi_${n}_d" placeholder="${i.tipo=='producto'?'Producto o concepto':'Servicio'}" value="${esc(i.descripcion)}"><button data-a="pid" data-i="${n}" aria-label="Quitar">✕</button></div><div class="pi2"><input id="pi_${n}_q" type="number" min="1" step="1" inputmode="numeric" value="${i.cantidad}"><input id="pi_${n}_p" type="number" min="0" step="500" inputmode="numeric" placeholder="Precio" value="${i.precio}"><select id="pi_${n}_r">${po(i.pro||P.pro)}</select></div>${matBlock(i,n)}</div>`).join('')||'<p class="mu">Agrega al menos un servicio o producto.</p>'}
   <div class="row" style="margin-top:8px"><select id="pos_add" style="flex:2"><option value="">➕ Agregar servicio…</option>${svcs.filter(s=>s.activo!==false).map(s=>`<option value="${s.id}">${esc(s.nombre)}${s.precio>0?' · '+money(s.precio):''}</option>`).join('')}</select></div>
-  <div class="row" style="margin-top:8px"><select id="pos_addp" style="flex:2"><option value="">📦 Agregar producto…</option>${PROD.filter(x=>x.activo!==false).map(x=>`<option value="${x.id}">${esc(x.nombre)}${x.precio>0?' · '+money(x.precio):''}${x.stock!=null?' · quedan '+x.stock:''}</option>`).join('')}</select><button data-a="pprod" style="flex:1">+ Otro</button></div>
+  <div class="row" style="margin-top:8px"><select id="pos_addp" style="flex:2"><option value="">📦 Agregar producto…</option>${PROD.filter(x=>x.activo!==false&&!x.es_material).map(x=>`<option value="${x.id}">${esc(x.nombre)}${x.precio>0?' · '+money(x.precio):''}${x.stock!=null?' · quedan '+x.stock:''}</option>`).join('')}</select><button data-a="pprod" style="flex:1">+ Otro</button></div>
   <div class="row2"><label>Descuento<div class="row" style="margin-top:8px"><input id="pos_desc" type="number" min="0" inputmode="numeric" value="${P.desc}" style="margin:0"><select id="pos_dtipo" style="margin:0;max-width:72px"><option value="$"${P.dtipo=='$'?' selected':''}>$</option><option value="%"${P.dtipo=='%'?' selected':''}>%</option></select></div></label><label>Propina<input id="pos_prop" type="number" min="0" step="500" inputmode="numeric" value="${P.prop}"></label></div>
   <div class="tbox" id="pos_tot"></div>
   <div class="dh">Pago</div>
@@ -438,9 +444,11 @@ async function posSave(){posRead();const f=$('#fe'),k=posCalc();
     if(i.precio===''||+i.precio<0){f.textContent=`Escribe el precio de "${i.descripcion}".`;return}if(!(+i.cantidad>=1)){f.textContent='La cantidad debe ser 1 o más.';return}}
   if(POS.pagos.some(p=>+p.v<0)){f.textContent='Los montos del pago no pueden ser negativos.';return}
   if(k.dif!=0){f.textContent=k.dif>0?'El pago no cubre el total a cobrar.':'El pago es mayor al total a cobrar.';return}
-  const items=POS.items.map(i=>({tipo:i.tipo,servicio_id:i.servicio_id||null,descripcion:String(i.descripcion).trim(),cantidad:+i.cantidad,precio:+i.precio,profesional_id:i.pro||POS.pro||null,producto_id:i.producto_id||null}));
+  const items=POS.items.map(i=>({tipo:i.tipo,servicio_id:i.servicio_id||null,descripcion:String(i.descripcion).trim(),cantidad:+i.cantidad,precio:+i.precio,profesional_id:i.pro||POS.pro||null,producto_id:i.producto_id||null,materiales:(i.mats||[]).filter(m=>m.pid&&+m.q>0).map(m=>({producto_id:m.pid,cantidad:Math.round(+m.q)}))}));
   const need={};items.forEach(i=>{if(i.producto_id)need[i.producto_id]=(need[i.producto_id]||0)+i.cantidad});
   for(const[pid,q]of Object.entries(need)){const pr=PROD.find(x=>x.id==pid);if(pr&&pr.stock!=null&&pr.stock<q){f.textContent=`No hay suficiente stock de ${pr.nombre}: quedan ${pr.stock}.`;return}}
+  const needM={};items.forEach(i=>(i.materiales||[]).forEach(m=>{needM[m.producto_id]=(needM[m.producto_id]||0)+m.cantidad}));
+  for(const[pid,q]of Object.entries(needM)){const pr=PROD.find(x=>x.id==pid);if(pr&&pr.stock!=null&&pr.stock<q){f.textContent=`No hay suficiente material de ${pr.nombre}: quedan ${pr.stock} ${pr.unidad||''}.`;return}}
   const pagos=POS.pagos.filter(p=>+p.v>0).map(p=>({metodo:p.m,monto:+p.v}));
   let tel=(POS.tel||'').replace(/\D/g,'');if(tel.length==10&&tel[0]=='3')tel='57'+tel;
   try{const id=await api('rpc/registrar_venta',{method:'POST',body:JSON.stringify({p_cita:POS.cita,p_cliente:POS.cli,p_telefono:tel,p_pro:POS.pro||null,p_items:items,p_descuento:k.d,p_propina:k.prop,p_pagos:pagos,p_nota:POS.nota})});
@@ -573,7 +581,7 @@ async function ensureProd(){if(!PROD.length&&!PRODERR)await loadProd()}
 const stBajo=p=>p.stock!=null&&p.stock<=p.stock_min;
 async function showProd(){await loadProd();drawProd()}
 function drawProd(){const act=PROD.filter(p=>p.activo!==false),oc=PROD.filter(p=>p.activo===false),bajos=act.filter(stBajo);
-  const row=p=>`<div class="c" style="--pc:${stBajo(p)?'#ff7b6b':'#d4af37'};${p.activo===false?'opacity:.5':''}"><h3><span><em style="font-size:16px">${esc(p.nombre)}</em></span><span>${money(p.precio)}</span></h3><p>${p.stock==null?'Sin control de inventario':`<b style="color:${stBajo(p)?'#ff7b6b':'var(--g2)'}">${p.stock} en stock</b>${stBajo(p)?' · ¡stock bajo!':''}`}</p><div class="acts">${p.stock!=null?`<button class="pr" data-a="aprod" data-id="${p.id}">+ Entrada / salida</button>`:''}<button data-a="eprod" data-id="${p.id}">Editar</button></div></div>`;
+  const row=p=>`<div class="c" style="--pc:${stBajo(p)?'#ff7b6b':'#d4af37'};${p.activo===false?'opacity:.5':''}"><h3><span><em style="font-size:16px">${p.es_material?'🧪 ':''}${esc(p.nombre)}</em></span><span>${p.es_material?'Material':money(p.precio)}</span></h3><p>${p.stock==null?'Sin control de inventario':`<b style="color:${stBajo(p)?'#ff7b6b':'var(--g2)'}">${p.stock}${p.es_material?' '+esc(p.unidad||''):''} en stock</b>${stBajo(p)?' · ¡stock bajo!':''}`}</p><div class="acts">${p.stock!=null?`<button class="pr" data-a="aprod" data-id="${p.id}">+ Entrada / salida</button>`:''}<button data-a="eprod" data-id="${p.id}">Editar</button></div></div>`;
   $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">Productos e inventario</h3>
   ${PRODERR?'<p class="msg">Falta ejecutar el SQL de productos (caja-y-productos.sql) en Supabase.</p>':`${bajos.length?`<div class="rest" style="margin-top:10px">⚠ Stock bajo: ${bajos.map(p=>esc(p.nombre)+' ('+p.stock+')').join(', ')}</div>`:''}
   ${act.length?act.map(row).join(''):'<p class="mu">Aún no tienes productos. Agrega el primero.</p>'}
@@ -583,22 +591,24 @@ function drawProd(){const act=PROD.filter(p=>p.activo!==false),oc=PROD.filter(p=
 function formProd(id){const p=PROD.find(x=>x.id==id)||{nombre:'',precio:'',stock:0,stock_min:0,activo:true},ctl=p.stock!=null||!id;
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${id?'Editar producto':'Nuevo producto'}</h3>
   <label>Nombre<input id="p_nom" value="${esc(p.nombre)}"></label>
-  <label>Precio de venta<input id="p_pre" type="number" min="0" inputmode="numeric" value="${p.precio}"></label>
-  <label>Costo (lo que te cuesta, opcional)<input id="p_cos" type="number" min="0" inputmode="numeric" value="${p.costo??''}" placeholder="Sirve para calcular tu utilidad"></label>
+  <label>¿Qué es?<select id="p_mat"><option value="0"${p.es_material?'':' selected'}>Producto para vender</option><option value="1"${p.es_material?' selected':''}>Material (tinte, keratina… se gasta en servicios)</option></select></label>
+  <div id="g_uni" style="display:${p.es_material?'block':'none'}"><label>Se mide en<select id="p_uni"><option value="g"${p.unidad=='g'||!p.unidad||p.unidad=='unidad'&&!p.es_material?' selected':''}>Gramos (g)</option><option value="ml"${p.unidad=='ml'?' selected':''}>Mililitros (ml)</option><option value="unidad"${p.unidad=='unidad'&&p.es_material?' selected':''}>Unidades</option></select></label></div>
+  <div id="g_pre" style="display:${p.es_material?'none':'block'}"><label>Precio de venta<input id="p_pre" type="number" min="0" inputmode="numeric" value="${p.precio}"></label></div>
+  <label>Costo por unidad (opcional)<input id="p_cos" type="number" min="0" step="any" inputmode="decimal" value="${p.costo??''}" placeholder="Ej. tubo de 60 g que costó $18.000 → 300 por gramo"></label>
   <label>Inventario<select id="p_ctl"><option value="1"${ctl?' selected':''}>Controlar cuántos quedan</option><option value="0"${ctl?'':' selected'}>No controlar</option></select></label>
   <div id="g_stk" style="display:${ctl?'block':'none'}"><label>Cantidad en stock<input id="p_stk" type="number" min="0" inputmode="numeric" value="${p.stock??0}"></label><label>Avisar cuando queden…<input id="p_min" type="number" min="0" inputmode="numeric" value="${p.stock_min||0}"></label></div>
   <label>Estado<select id="p_act"><option value="1"${p.activo!==false?' selected':''}>Activo</option><option value="0"${p.activo===false?' selected':''}>Oculto (ya no se vende)</option></select></label>
   <div class="msg" id="fe"></div><div class="acts"><button data-a="prod">← Volver</button>${id?`<button data-a="dprod" data-id="${id}">Eliminar</button>`:''}<button class="pr" data-a="sprod" data-id="${id||''}">Guardar</button></div>${id?'<p class="mu" style="font-size:12px">Al eliminarlo, las ventas anteriores se conservan con su nombre y precio. Si solo quieres que no se venda más, ponlo en “Oculto”.</p>':''}</div>`;
   $('#m').classList.add('on')}
-async function saveProd(id){const f=$('#fe'),nom=$('#p_nom').value.trim(),pre=$('#p_pre').value,ctl=$('#p_ctl').value=='1';
+async function saveProd(id){const f=$('#fe'),nom=$('#p_nom').value.trim(),mat=$('#p_mat').value=='1',pre=mat?'0':$('#p_pre').value,ctl=mat||$('#p_ctl').value=='1';
   if(nom.length<2){f.textContent='Escribe el nombre.';return}if(pre===''||+pre<0){f.textContent='Escribe el precio.';return}
   const o={nombre:nom,precio:+pre,stock:ctl?Math.max(0,Math.round(+$('#p_stk').value||0)):null,stock_min:ctl?Math.max(0,Math.round(+$('#p_min').value||0)):0,activo:$('#p_act').value=='1'};
-  const cs=$('#p_cos').value;o.costo=cs===''?null:Math.max(0,+cs);
+  const cs=$('#p_cos').value;o.costo=cs===''?null:Math.max(0,+cs);o.es_material=mat;o.unidad=mat?$('#p_uni').value:'unidad';
   const go=b=>api(id?'productos?id=eq.'+id:'productos',{method:id?'PATCH':'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify(b)});
-  try{await go(o).catch(e=>{if(e.status==400&&o.costo==null){const{costo,...r}=o;return go(r)}throw e});await showProd()}
-  catch(e){f.textContent=e.status==404?'Falta ejecutar el SQL de productos en Supabase.':(e.detail||'No se pudo guardar.')}}
+  try{await go(o).catch(e=>{if(e.status==400){if(mat)throw Object.assign(e,{falta:1});const{costo,es_material,unidad,...r}=o;return go(r)}throw e});await showProd()}
+  catch(e){f.textContent=e.falta?'Falta ejecutar materiales.sql en Supabase.':e.status==404?'Falta ejecutar el SQL de productos en Supabase.':(e.detail||'No se pudo guardar.')}}
 function formEnt(id){const p=PROD.find(x=>x.id==id);if(!p)return;
-  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(p.nombre)}</h3><p class="mu">Ahora hay <b>${p.stock}</b> en stock.</p>
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">${esc(p.nombre)}</h3><p class="mu">Ahora hay <b>${p.stock}${p.es_material?' '+esc(p.unidad||''):''}</b> en stock.</p>
   <label>Movimiento<select id="e_tipo"><option value="1">Entrada (compra, reposición)</option><option value="-1">Salida (pérdida, uso interno, daño)</option></select></label>
   <label>Cantidad<input id="e_cant" type="number" min="1" inputmode="numeric"></label>
   <label>Nota (opcional)<input id="e_mot" placeholder="Ej. compra a proveedor"></label>
@@ -644,7 +654,7 @@ function repCalc(){const{vs,leg}=RD,R={};
   const ce=(f,id)=>{const k=f+'|'+(id||'');return R[k]=R[k]||{fecha:f,id:id||'',serv:0,prod:0,prop:0,com:0,n:0}};
   vs.forEach(v=>{const sub=+v.subtotal,f=sub>0?(+v.total)/sub:1;
     (v.venta_items||[]).forEach(i=>{const pid=i.profesional_id||v.profesional_id,net=(+i.cantidad)*(+i.precio)*f,r=ce(v.fecha,pid);
-      if(i.tipo=='servicio'){r.serv+=net;r.com+=net*com(pid)/100;r.n+=+i.cantidad}else r.prod+=net});
+      if(i.tipo=='servicio'){r.serv+=net;r.com+=Math.max(0,net-(+i.material_costo||0))*com(pid)/100;r.n+=+i.cantidad}else r.prod+=net});
     if(+v.propina>0)ce(v.fecha,v.profesional_id).prop+=+v.propina});
   leg.forEach(c=>{const val=valor(c),r=ce(c.fecha,c.profesional_id);r.serv+=val;r.com+=val*com(c.profesional_id)/100;r.n++});
   const rows=Object.values(R).map(r=>({...r,ing:r.serv+r.prod,sal:r.serv+r.prod-r.com}));
@@ -667,7 +677,7 @@ function drawRep(){if(!RD)return;const k=repCalc(),T=k.all;
   ${RV=='uti'?utHtml(k):RV=='pro'?(k.pl.length?`<table class="tb"><tr><th>Profesional</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th><th>A pagar</th></tr>${k.pl.map(r=>`<tr><td>${esc(r.nombre)}</td><td>${money(r.ing)}</td><td>${money(r.com)}<br><small>${pct(r.com,r.ing)}</small></td><td>${money(r.sal)}<br><small>${pct(r.sal,r.ing)}</small></td><td>${money(r.prop)}</td><td><b>${money(r.com+r.prop)}</b></td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(T.ing)}</b></td><td><b>${money(T.com)}</b></td><td><b>${money(T.sal)}</b></td><td><b>${money(T.prop)}</b></td><td><b>${money(T.com+T.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>')
    :`<label>Profesional<select id="rep_f"><option value="">Todo el equipo</option>${prosA().map(p=>`<option value="${p.id}"${RF==p.id?' selected':''}>${esc(p.nombre)}</option>`).join('')}</select></label>
    ${k.dl.length?`<table class="tb"><tr><th>Día</th><th>Ingresos</th><th>Comisión</th><th>Salón</th><th>Propinas</th></tr>${k.dl.map(r=>`<tr><td>${r.fecha.slice(8)}/${r.fecha.slice(5,7)}</td><td>${money(r.ing)}</td><td>${money(r.com)}</td><td>${money(r.sal)}</td><td>${money(r.prop)}</td></tr>`).join('')}<tr><td><b>Total</b></td><td><b>${money(k.sel.ing)}</b></td><td><b>${money(k.sel.com)}</b><br><small>${pct(k.sel.com,k.sel.ing)}</small></td><td><b>${money(k.sel.sal)}</b><br><small>${pct(k.sel.sal,k.sel.ing)}</small></td><td><b>${money(k.sel.prop)}</b></td></tr></table>`:'<p class="mu">No hay ventas en este periodo.</p>'}`}
-  <p class="mu" style="font-size:12px">Ingresos = servicios + productos, ya con descuento. La comisión se calcula solo sobre servicios (porcentaje de cada profesional); los productos son del salón. Las propinas son del profesional y no cuentan como ingreso del salón. “A pagar” = comisión + propinas.</p>
+  <p class="mu" style="font-size:12px">Ingresos = servicios + productos, ya con descuento. La comisión se calcula solo sobre servicios, después de restar el material usado (porcentaje de cada profesional); los productos son del salón. Las propinas son del profesional y no cuentan como ingreso del salón. “A pagar” = comisión + propinas.</p>
   <div class="acts"><button data-a="close">Cerrar</button><button data-a="liq">💸 Pagar a profesionales</button><button data-a="rcsv">Descargar para Excel</button></div></div>`;
   $('#m').classList.add('on')}
 function repCsv(){const k=repCalc(),t=repTitle().replace(/[^\w]+/g,'-');if(RV=='uti')return utCsv(k,t);
@@ -682,18 +692,18 @@ function utCalc(k){const T=k.all;let cp=0,nSin=0;
   (RD.vs||[]).forEach(v=>(v.venta_items||[]).forEach(i=>{if(i.tipo=='producto'){const pr=PROD.find(x=>x.id==i.producto_id);if(pr&&pr.costo!=null)cp+=i.cantidad*pr.costo;else nSin+=i.cantidad}}));
   const gv=(UT.g||[]).filter(g=>g.categoria!='pago_pro'),gvT=gv.reduce((a,g)=>a+ +g.monto,0),fj=(UT.fj||[]).filter(f=>f.activo!==false),fjT=fj.reduce((a,f)=>a+ +f.monto,0);
   const cat={};gv.forEach(g=>{const c=g.categoria||'sin';cat[c]=(cat[c]||0)+ +g.monto});
-  const uti=T.ing-T.com-cp-gvT-fjT;return{ing:T.ing,com:T.com,cp,nSin,gvT,fjT,uti,cat,fj}}
+  const cm=(RD.vs||[]).reduce((a,v)=>a+(v.venta_items||[]).reduce((b,i)=>b+(+i.material_costo||0),0),0),uti=T.ing-T.com-cp-cm-gvT-fjT;return{ing:T.ing,com:T.com,cp,cm,nSin,gvT,fjT,uti,cat,fj}}
 function utHtml(k){if(!UT)return '<p class="mu">Cargando…</p>';const u=utCalc(k),neg=u.uti<0,mg=n=>(n<0?'-':'')+money(Math.abs(n));
   return `${RD.err?'':''}<div class="stats" style="margin-top:10px"><div><b>${money(u.ing)}</b><span>ingresos</span></div><div><b style="color:${neg?'#ff7b6b':'#6fcf97'}">${mg(u.uti)}</b><span>utilidad</span></div><div><b>${pct(u.uti,u.ing)}</b><span>margen</span></div></div>
-  <table class="tb"><tr><td>Ingresos (servicios + productos)</td><td>${money(u.ing)}</td></tr><tr><td>− Comisiones de profesionales</td><td>${money(u.com)}</td></tr><tr><td>− Costo de productos vendidos</td><td>${money(u.cp)}</td></tr><tr><td>− Gastos del mes</td><td>${money(u.gvT)}</td></tr><tr><td>− Gastos fijos mensuales</td><td>${money(u.fjT)}</td></tr><tr><td><b>= Utilidad</b></td><td><b style="color:${neg?'#ff7b6b':'#6fcf97'}">${mg(u.uti)}</b></td></tr></table>
+  <table class="tb"><tr><td>Ingresos (servicios + productos)</td><td>${money(u.ing)}</td></tr><tr><td>− Comisiones de profesionales</td><td>${money(u.com)}</td></tr><tr><td>− Costo de productos vendidos</td><td>${money(u.cp)}</td></tr><tr><td>− Material usado en servicios</td><td>${money(u.cm)}</td></tr><tr><td>− Gastos del mes</td><td>${money(u.gvT)}</td></tr><tr><td>− Gastos fijos mensuales</td><td>${money(u.fjT)}</td></tr><tr><td><b>= Utilidad</b></td><td><b style="color:${neg?'#ff7b6b':'#6fcf97'}">${mg(u.uti)}</b></td></tr></table>
   ${u.nSin?`<p class="mu" style="font-size:12px">Vendiste ${u.nSin} producto(s) sin costo registrado. Ponles el costo en Productos para una utilidad más exacta.</p>`:''}
   ${UT.errG?'<p class="msg">No se pudieron leer los gastos.</p>':''}
   ${Object.keys(u.cat).length?`<div class="dh">Gastos por categoría</div><table class="tb">${Object.entries(u.cat).sort((a,b)=>b[1]-a[1]).map(([c,m])=>`<tr><td>${c=='sin'?'Sin categoría':gcatLbl(c)}</td><td>${money(m)}</td></tr>`).join('')}</table>`:''}
   <div class="dh">Gastos fijos de cada mes</div>
   ${UT.errFj?'<p class="msg">Falta ejecutar el SQL de finanzas (finanzas.sql) en Supabase.</p>':`${(UT.fj||[]).map(f=>`<div class="c" style="--pc:#d4af37"><h3><span>${esc(f.concepto)}</span><span>${money(f.monto)}</span></h3><div class="acts"><button data-a="fjdel" data-id="${f.id}">Quitar</button></div></div>`).join('')||'<p class="mu">Agrega arriendo, internet, luz, nómina fija… lo que pagas todos los meses.</p>'}
   <div class="row2"><input id="fj_c" placeholder="Concepto (ej. Arriendo)"><input id="fj_m" type="number" min="0" inputmode="numeric" placeholder="Monto mensual"></div><button data-a="fjadd" style="margin-top:8px">+ Agregar gasto fijo</button>`}
-  <p class="mu" style="font-size:12px">Utilidad = ingresos − comisiones − costo de productos − gastos del mes − gastos fijos. Las propinas no cuentan (son de los profesionales) y los pagos a profesionales no se restan otra vez porque ya están en las comisiones. Los gastos fijos se cuentan completos aunque el mes no haya terminado.</p>`}
-function utCsv(k,t){const u=utCalc(k),r=[['Ingresos',u.ing],['Comisiones de profesionales',-u.com],['Costo de productos vendidos',-u.cp],['Gastos del mes',-u.gvT],['Gastos fijos mensuales',-u.fjT],['Utilidad',u.uti]];
+  <p class="mu" style="font-size:12px">Utilidad = ingresos − comisiones − costo de productos − material usado − gastos del mes − gastos fijos. El material sale de tu inventario: si lo controlas ahí, no lo registres además como gasto de “Insumos” para no contarlo dos veces. Las propinas no cuentan (son de los profesionales) y los pagos a profesionales no se restan otra vez porque ya están en las comisiones. Los gastos fijos se cuentan completos aunque el mes no haya terminado.</p>`}
+function utCsv(k,t){const u=utCalc(k),r=[['Ingresos',u.ing],['Comisiones de profesionales',-u.com],['Costo de productos vendidos',-u.cp],['Material usado en servicios',-u.cm],['Gastos del mes',-u.gvT],['Gastos fijos mensuales',-u.fjT],['Utilidad',u.uti]];
   Object.entries(u.cat).forEach(([c,m])=>r.push(['  gasto: '+(c=='sin'?'Sin categoría':gcatLbl(c)),-m]));u.fj.forEach(f=>r.push(['  fijo: '+f.concepto,-f.monto]));
   bajar(`utilidad-${t}.csv`,toCsv(['concepto','valor'],r.map(([a,b])=>({concepto:a,valor:Math.round(b)}))),'csv')}
 /* ---------- pagos a profesionales ---------- */
@@ -939,6 +949,8 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='pinx'){PINREDO=null;return closeM()}
   if(a=='lock'){PINUNTIL=0;note('🔒 Secciones bloqueadas.');return render()}
   if(a=='impt')return impTest();
+  if(a=='pma'){posRead();const it=POS.items[+b.dataset.i];(it.mats=it.mats||[]).push({pid:'',q:''});return posRender()}
+  if(a=='pmd'){posRead();POS.items[+b.dataset.i].mats.splice(+b.dataset.k,1);return posRender()}
   if(a=='pid'){posRead();POS.items.splice(+b.dataset.i,1);return posRender()}
   if(a=='pprod'){posRead();POS.items.push({tipo:'producto',servicio_id:null,descripcion:'',cantidad:1,precio:'',pro:''});return posRender()}
   if(a=='pga'){posRead();POS.pagos.push({m:POS.pagos.some(x=>x.m=='nequi')?'efectivo':'nequi',v:''});return posRender()}
@@ -1006,11 +1018,12 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id=='p_hor')$('#g_hor').style.display=t.value=='1'?'block':'none';
   if(t.id=='rep_f'){RF=t.value;drawRep()}
   if(t.id=='p_ctl')$('#g_stk').style.display=t.value=='1'?'':'none';
+  if(t.id=='p_mat'){const m=t.value=='1';$('#g_uni').style.display=m?'block':'none';$('#g_pre').style.display=m?'none':'block';if(m){$('#p_ctl').value='1';$('#g_stk').style.display=''}}
   if(t.id=='imp_pap'){setLS('sh-pap',t.value);applyPaper()}
   if(t.id=='imp_ap')setLS('sh-ap',t.value);
   if(t.id=='imp_aps')setLS('sh-aps',t.value);
   if(t.id=='cj_dt'&&t.value){CJ=t.value;showCaja()}
-  if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro});posRender()}}else if(t.id=='pos_addp'){if(t.value){posRead();const x=PROD.find(y=>y.id==t.value);if(x)POS.items.push({tipo:'producto',servicio_id:null,producto_id:x.id,descripcion:x.nombre,cantidad:1,precio:x.precio>0?x.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
+  if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro,mats:[]});posRender()}}else if(t.id=='pos_addp'){if(t.value){posRead();const x=PROD.find(y=>y.id==t.value);if(x)POS.items.push({tipo:'producto',servicio_id:null,producto_id:x.id,descripcion:x.nombre,cantidad:1,precio:x.precio>0?x.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
 document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
   if(t.id=='pos_cli'){const m=CLI.find(x=>x.nombre.toLowerCase()==t.value.trim().toLowerCase()),p=$('#pos_tel');if(m&&p&&!p.value)p.value=m.telefono}
