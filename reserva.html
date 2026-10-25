@@ -42,6 +42,11 @@ a.alt{text-align:center;text-decoration:none}
 .seg button{flex:1;border:0;background:none;color:var(--mu);padding:10px 4px;font:600 14px Montserrat,system-ui,sans-serif;cursor:pointer;border-radius:9px}
 .seg button.on{background:linear-gradient(135deg,var(--g2),var(--g));color:#000}
 .alt{display:block;width:100%;margin-top:10px;padding:14px;border-radius:12px;border:1px solid var(--g);background:transparent;color:var(--g2);font:600 14px Montserrat,system-ui,sans-serif;cursor:pointer}
+.days{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-top:10px}
+.days button{padding:8px 0;border-radius:12px;border:1px solid #3d3314;background:#000;color:#a9a9a9;font:600 11px Montserrat,system-ui,sans-serif;cursor:pointer}
+.days button b{display:block;font-size:16px;color:#fff;margin-top:2px}
+.days button.on{background:linear-gradient(135deg,var(--g2),var(--g));color:#3a2d08;border-color:var(--g)}.days button.on b{color:#1a1405}
+.days button:disabled{opacity:.3;cursor:not-allowed}
 </style></head><body><main id="app"></main>
 <script>
 // ====== CONFIGURA AQUÍ ======
@@ -60,7 +65,12 @@ const tm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2
 const mn=t=>{const[a,b]=t.split(':');return +a*60+ +b};
 const api=async(p,o={})=>{const r=await fetch(CFG.URL+'/rest/v1/'+p,{...o,headers:{apikey:CFG.KEY,'Content-Type':'application/json',...(o.headers||{})}});
   if(!r.ok){let d='';try{const j=await r.json();d=j.message||j.hint||j.code||''}catch(_){}const e=new Error('http');e.status=r.status;e.detail=d;throw e}const tx=await r.text();return tx?JSON.parse(tx):null};
-const today=iso(new Date()),maxd=iso(new Date(Date.now()+CFG.DIAS*864e5));
+const today=iso(new Date());
+// Solo se reserva dentro de la semana actual (lunes a domingo). El domingo no se muestra ningún día: la semana nueva abre a las 12 de la noche.
+const addD=(d,n)=>{const x=new Date(d+'T12:00');x.setDate(x.getDate()+n);return iso(x)};
+const dow0=new Date(today+'T12:00').getDay(),CERRADO=dow0==0,monday=addD(today,-((dow0+6)%7)),WEEK=[0,1,2,3,4,5,6].map(i=>addD(monday,i)),maxd=WEEK[6];
+const CERRADO_TXT='📅 Las reservas de la nueva semana se abren hoy a las 12:00 de la noche. Vuelve entonces para ver los días disponibles.';
+const DNOM=['D','L','M','M','J','V','S'];
 let svcs=[],pros=[],rel=[],busy=[],done=null,msg='',S={svc:'',pro:'',extra:[],date:today,time:'',name:'',phone:'',hp:''};
 
 const cats=()=>['dama','caballero'].filter(c=>svcs.some(s=>s.categoria==c));
@@ -117,6 +127,7 @@ function slots(){
   return r}
 async function book(){
   if(S.hp||Date.now()-(S.t||0)<4000)return;S.t=Date.now();
+  if(CERRADO||S.date<today||S.date>maxd){S.t=0;msg='Solo puedes reservar dentro de esta semana (lunes a domingo).';render();return}
   const nm=S.name.trim(),ph=(p=>p.length==10&&p[0]=='3'?'57'+p:p)(S.phone.replace(/\D/g,''));
   if(!S.time||nm.length<2||ph.length<8){S.t=0;msg=S.off?((pros.find(x=>x.id==S.pro)?.nombre||'El profesional')+' está de descanso este día. Elige otra fecha u otro profesional.'):'Elige un horario y completa tu nombre y teléfono.';render();return}
   const s=svcs.find(x=>x.id==S.svc);
@@ -142,11 +153,11 @@ function render(){
   a.innerHTML=`<div class="hd">${logo}</div><div class="tag">Tu estilo, nuestra pasión</div>
   <section class="st"><h3><i>1</i>Elige tu servicio</h3>${cats().length>1?`<div class="seg">${cats().map(c=>`<button data-c="${c}" class="${S.cat==c?'on':''}">${c=='dama'?'Dama':'Caballero'}</button>`).join('')}</div>`:''}${sel('svc',svcsFor().map(x=>[x.id,`${x.nombre} · ${x.dur_min} min${x.precio>0?' · $'+Number(x.precio).toLocaleString('es-CO'):''}`]))}${extrasUI()}${CFG.WA?`<div class="info">✨ <b>Keratinas y tintes:</b> cada cabello es distinto, por eso un profesional te valora antes de agendar. <a href="https://wa.me/${CFG.WA}?text=${encodeURIComponent('Hola, quiero una valoración para keratina o tinte')}" target="_blank" rel="noopener">Escríbenos por WhatsApp</a>.</div>`:''}</section>
   <section class="st"><h3><i>2</i>Elige quién te atiende</h3>${sel('pro',prosFor().map(x=>[x.id,x.nombre]))}</section>
-  <section class="st"><h3><i>3</i>Fecha y hora</h3><input type="date" data-k="date" min="${today}" max="${maxd}" value="${S.date}"><div class="slots">${slotsHtml(sl,S.time,'t',S.off,pr&&pr.nombre)}</div></section>
+  <section class="st"><h3><i>3</i>Fecha y hora</h3>${CERRADO?`<div class="info">${CERRADO_TXT}</div>`:`<div class="days">${WEEK.map(d=>`<button data-day="${d}" class="${S.date==d?'on':''}"${d<today?' disabled':''}>${DNOM[new Date(d+'T12:00').getDay()]}<b>${+d.slice(8)}</b></button>`).join('')}</div><div class="slots">${slotsHtml(sl,S.time,'t',S.off,pr&&pr.nombre)}</div>`}</section>
   <section class="st"><h3><i>4</i>Tus datos</h3><input data-f="name" placeholder="Tu nombre" autocomplete="name" value="${esc(S.name)}"><input data-f="phone" type="tel" placeholder="Tu celular (ej. 3001234567)" autocomplete="tel" value="${esc(S.phone)}"><input class="hp" data-f="hp" tabindex="-1" autocomplete="off" aria-hidden="true"></section>
   ${S.time&&sv&&pr?`<div class="sum">${esc(nombresSel())} · ${esc(pr.nombre)} · ${S.date} · ${S.time}</div>`:''}
   ${msg?`<div class="msg">${esc(msg)}</div>`:''}
-  <button class="go" data-book="1">Reservar cita</button>
+  ${CERRADO?'':'<button class="go" data-book="1">Reservar cita</button>'}
   
   <p class="foot">S&amp;H · CENTRO DE BELLEZA Y BARBERÍA</p>`}
 const choque=e=>e.status==409||/sin_choques|exclusion|conflicting/i.test(e.detail||'');
@@ -175,10 +186,12 @@ function renderManage(){
   let body;
   if(M.estado=='cancelada'||M.estado=='atendida')body=`<a class="go" href="${location.pathname}">Reservar una nueva cita</a>`;
   else if(Mm=='cx')body=`<p class="mu">¿Seguro que quieres cancelar esta cita?</p><button class="go" data-a="yes">Sí, cancelar</button><button class="alt" data-a="back">Volver</button>`;
-  else if(Mm=='re'){const sl=mslots();body=`<input type="date" data-mk="1" min="${today}" max="${maxd}" value="${Md}"><div class="slots">${slotsHtml(sl,Mt,'mt',Moff,M.profesional)}</div><button class="go" data-a="save">Confirmar nuevo horario</button><button class="alt" data-a="back">Volver</button>`}
+  else if(Mm=='re'&&CERRADO)body=`<div class="info">${CERRADO_TXT}</div><button class="alt" data-a="back">Volver</button>`;
+  else if(Mm=='re'){const sl=mslots();body=`<input type="date" data-mk="1" min="${today}" max="${maxd}" value="${Md>maxd?maxd:Md}"><div class="slots">${slotsHtml(sl,Mt,'mt',Moff,M.profesional)}</div><button class="go" data-a="save">Confirmar nuevo horario</button><button class="alt" data-a="back">Volver</button>`}
   else body=(M.estado=='pendiente'?`<button class="go" data-a="ok">Confirmar mi cita</button>`:'')+`<button class="alt" data-a="re">Reagendar</button><button class="alt" data-a="cx">Cancelar cita</button>`+calBtns({titulo:M.servicio+' en '+CFG.NOMBRE,fecha:M.fecha,hora:M.hora,dur:M.dur_min,desc:'Con '+M.profesional+'. Gestiona tu cita: '+location.href});
   a.innerHTML=`<div class="hd">${logo}</div><section class="st ok"><div class="mu">${lbl}</div>${det}${Mmsg?`<div class="msg">${esc(Mmsg)}</div>`:''}${body}</section><p class="foot">S&amp;H · CENTRO DE BELLEZA Y BARBERÍA</p>`}
 document.addEventListener('change',async e=>{if(e.target.dataset.mk){Md=e.target.value;Mt='';await loadMb();render()}});
+document.addEventListener('click',async e=>{const d=e.target.closest('[data-day]');if(!d||d.disabled)return;S.date=d.dataset.day;S.time='';msg='';await loadBusy();render()});
 document.addEventListener('change',async e=>{const k=e.target.dataset.k;if(!k)return;S[k]=e.target.value;S.time='';msg='';if(k=='svc'){S.extra=S.extra.filter(x=>x!=S.svc);fixPro()}await loadBusy();render()});
 document.addEventListener('change',e=>{if(e.target.dataset.add&&e.target.value){S.extra.push(e.target.value);S.time='';msg='';render()}});
 document.addEventListener('input',e=>{const f=e.target.dataset.f;if(f)S[f]=e.target.value});
