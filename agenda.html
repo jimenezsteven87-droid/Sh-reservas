@@ -522,7 +522,7 @@ function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.ho
 const PSECS=[['pr','Equipo'],['prod','Productos'],['rep','Reportes'],['sv','Servicios y precios'],['caja','Caja'],['resp','Respaldo']];
 let PINCFG={existe:false,secciones:[]},PINUNTIL=0,PINREDO=null;
 async function loadPin(){try{const r=await api('rpc/pin_estado',{method:'POST',body:'{}'});PINCFG=r&&r[0]?{existe:!!r[0].existe,secciones:r[0].secciones||[]}:{existe:false,secciones:[]}}catch(e){PINCFG={existe:false,secciones:[]}}}
-const pinLocked=a=>{if(a=='liq')a='rep';return PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL};
+const pinLocked=a=>{if(a=='liq')a='rep';if(a=='limp')a='resp';return PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL};
 function pinAsk(btn){PINREDO=btn;
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🔒 Sección protegida</h3><p class="mu">Escribe tu PIN para continuar.</p>
   <input id="pin_in" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="PIN" style="text-align:center;font-size:22px;letter-spacing:.3em">
@@ -741,6 +741,43 @@ function liqForm(pid){const r=LQ.saldo.find(x=>x.profesional_id==pid),q=r?liqRes
   <div class="msg" id="fe"></div><div class="acts"><button data-a="liq">Cancelar</button><button class="pr" data-a="lsave" data-id="${pid}">Registrar pago</button></div></div>`}
 function slipTxt(x,q){const sep='--------------------------------';return [`${CFG.NOMBRE} · Centro de Belleza y Barbería`,x.tipo=='adelanto'?'Comprobante de adelanto':'Comprobante de pago de comisión',new Date(x.fecha+'T12:00').toLocaleDateString('es',{day:'numeric',month:'short',year:'numeric'}),sep,'Profesional: '+proNom(x.profesional_id),'Valor: '+money(x.monto),'Método: '+metLbl(x.metodo),...(x.nota?['Nota: '+x.nota]:[]),...(q!=null?[sep,'Saldo por pagar: '+money(q)]:[]),sep,'Firma: ____________________'].join('\n')}
 function liqSlip(x,q){$('#m').innerHTML=`<div class="sh"><div id="rcp"><pre class="rtxt">${esc(slipTxt(x,q))}</pre></div><div class="acts" style="flex-wrap:wrap"><button class="pr" data-a="rpr">🖨 Imprimir</button><button data-a="liq">← Volver</button><button data-a="close">Cerrar</button></div></div>`;$('#m').classList.add('on')}
+
+/* ---------- liberar espacio: borrar lo más antiguo ---------- */
+let LIMP={m:12,f:'1',i:'1',c:'1',v:'0',prev:null,done:null};
+const limpFecha=m=>{const d=new Date(today+'T12:00');d.setMonth(d.getMonth()-m);return iso(d)};
+function limpRead(){const v=id=>$('#'+id)?.value;LIMP.m=+v('lm_m')||LIMP.m;LIMP.f=v('lm_f')??LIMP.f;LIMP.i=v('lm_i')??LIMP.i;LIMP.c=v('lm_c')??LIMP.c;LIMP.v=v('lm_v')??LIMP.v}
+function showLimp(){const L=LIMP,cut=limpFecha(L.m),P=L.prev,bk=(()=>{try{return localStorage.getItem('sh-resp')==today}catch(e){return false}})();
+  const sn=(id,val)=>`<select id="${id}"><option value="1"${val=='1'?' selected':''}>Borrar</option><option value="0"${val=='0'?' selected':''}>No borrar</option></select>`;
+  $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🧹 Liberar espacio</h3>
+  <p class="mu">Borra lo más antiguo para ahorrar espacio. No toca clientes, servicios, profesionales, productos, notas ni configuración. <b>No se puede deshacer.</b></p>
+  <label>Borrar lo anterior a<select id="lm_m">${[[6,'6 meses'],[12,'1 año'],[24,'2 años'],[36,'3 años']].map(([v,n])=>`<option value="${v}"${L.m==v?' selected':''}>Hace más de ${n}</option>`).join('')}</select></label>
+  <p class="mu" style="margin:4px 0 0">Se borra lo anterior al <b>${cut}</b>.</p>
+  <label>📷 Fotos de las fichas (las fórmulas escritas se conservan)${sn('lm_f',L.f)}</label>
+  <label>📦 Movimientos de inventario${sn('lm_i',L.i)}</label>
+  <label>📅 Citas atendidas y canceladas${sn('lm_c',L.c)}</label>
+  <label>🧾 Ventas, gastos, cierres de caja y pagos (los reportes de ese periodo desaparecen)${sn('lm_v',L.v)}</label>
+  <div class="acts"><button class="pr" data-a="lcalc">Ver qué se borraría</button></div>
+  ${P?`<div class="tbox" style="margin-top:12px">${P.err?esc(P.err):`<div><span>📷 Fotos</span><b>${P.fotos}</b></div>${P.r.citas!=null?`<div><span>📅 Citas</span><b>${P.r.citas}</b></div>`:''}${P.r.ventas!=null?`<div><span>🧾 Ventas</span><b>${P.r.ventas}</b></div><div><span>Gastos</span><b>${P.r.gastos}</b></div><div><span>Cierres de caja</span><b>${P.r.cajas}</b></div><div><span>Pagos a profesionales</span><b>${P.r.pagos_pro}</b></div>`:''}${P.r.movimientos_inventario!=null?`<div><span>📦 Movimientos de inventario</span><b>${P.r.movimientos_inventario}</b></div>`:''}`}</div>
+  ${P.err?'':(bk?`<button data-a="ldo" style="margin-top:10px;width:100%">🗑 Borrar ahora</button>`:`<p class="msg">Antes de borrar, descarga un respaldo de hoy: ☰ → Respaldo → Todo (JSON).</p><button data-a="resp" style="width:100%">💾 Ir a Respaldo</button>`)}`:''}
+  ${L.done?`<div class="tbox" style="margin-top:12px;border-color:#6fcf97"><div><span>✅ Listo, se borró:</span><b></b></div>${L.done}</div>`:''}
+  <div class="msg" id="fe"></div><div class="acts"><button data-a="close">Cerrar</button></div></div>`;
+  $('#m').classList.add('on')}
+async function limpCalc(){limpRead();const cut=limpFecha(LIMP.m),f=$('#fe');LIMP.done=null;
+  try{let fotos=0;if(LIMP.f=='1')fotos=(await fetchAll(`cliente_registros?select=id,fotos&fecha=lt.${cut}`)).reduce((a,r)=>a+(r.fotos||[]).length,0);
+    const r=await api('rpc/limpieza',{method:'POST',body:JSON.stringify({p_antes:cut,p_citas:LIMP.c=='1',p_ventas:LIMP.v=='1',p_inv:LIMP.i=='1',p_ejecutar:false})});LIMP.prev={r,fotos}}
+  catch(e){LIMP.prev={err:e.status==404?'Falta ejecutar limpieza.sql en Supabase.':(e.status==400&&e.detail&&!/violates|constraint|syntax|column|function/i.test(e.detail)?e.detail:'No se pudo calcular.')}}
+  showLimp()}
+async function limpRun(){const cut=limpFecha(LIMP.m);let fotos=0,msgs=[];
+  try{if(LIMP.f=='1'){const regs=(await fetchAll(`cliente_registros?select=id,fotos&fecha=lt.${cut}`)).filter(r=>(r.fotos||[]).length),paths=regs.flatMap(r=>r.fotos);
+      for(let i=0;i<paths.length;i+=50)await sto('/storage/v1/object/fichas',{method:'DELETE',body:JSON.stringify({prefixes:paths.slice(i,i+50)})});
+      for(let i=0;i<regs.length;i+=50)await api(`cliente_registros?id=in.(${regs.slice(i,i+50).map(r=>r.id).join(',')})`,{method:'PATCH',headers:{Prefer:'return=minimal'},body:JSON.stringify({fotos:[]})});
+      fotos=paths.length;msgs.push(`<div><span>📷 Fotos</span><b>${fotos}</b></div>`)}
+    const r=await api('rpc/limpieza',{method:'POST',body:JSON.stringify({p_antes:cut,p_citas:LIMP.c=='1',p_ventas:LIMP.v=='1',p_inv:LIMP.i=='1',p_ejecutar:true})});
+    if(r.citas!=null)msgs.push(`<div><span>📅 Citas</span><b>${r.citas}</b></div>`);
+    if(r.ventas!=null)msgs.push(`<div><span>🧾 Ventas</span><b>${r.ventas}</b></div><div><span>Gastos y cierres</span><b>${(r.gastos||0)+(r.cajas||0)}</b></div>`);
+    if(r.movimientos_inventario!=null)msgs.push(`<div><span>📦 Movimientos</span><b>${r.movimientos_inventario}</b></div>`);
+    LIMP.done=msgs.join('')||'<div><span>Nada que borrar</span><b></b></div>';LIMP.prev=null;CLI=[];PROD=[];await reload(1);showLimp()}
+  catch(e){LIMP.prev={err:e.status==404?'Falta ejecutar limpieza.sql en Supabase.':'No se pudo borrar todo. Revisa tu conexión y vuelve a intentar.'};showLimp()}}
 /* ---------- citas de mañana (recordatorio manual por WhatsApp) ---------- */
 const manMark=()=>{try{return JSON.parse(localStorage.getItem('sh-wam')||'{}')}catch(e){return{}}};
 async function showMan(){$('#m').innerHTML='<div class="sh"><p class="mu">Cargando…</p></div>';$('#m').classList.add('on');
@@ -879,7 +916,7 @@ function render(){
     ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
     <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button><button data-a="liq">💸 Pagos a profesionales</button>
     <div class="mh">Clientes y equipo</div><button data-a="cli">👤 Clientes</button><button data-a="man">📲 Citas de mañana</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button>
-    <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
+    <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button><button data-a="limp">🧹 Liberar espacio</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
     <button class="out" data-a="out">Cerrar sesión</button>
   </div></div>
   <div class="week"><button class="wn" data-a="wk" data-n="-1" aria-label="Semana anterior">‹</button>${[0,1,2,3,4,5,6].map(i=>{const d=add(ws,i);return `<button class="wd${d==date?' on':''}${d==today?' td':''}" data-a="day" data-d="${d}">${WD[i]}<b>${+d.slice(8)}</b></button>`}).join('')}<button class="wn" data-a="wk" data-n="1" aria-label="Semana siguiente">›</button></div>
@@ -990,6 +1027,9 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='fjadd'){const c=$('#fj_c').value.trim(),m=+$('#fj_m').value;if(c.length<2||!(m>0))return note('Escribe el concepto y el monto.');
     try{await api('gastos_fijos',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({concepto:c,monto:m})})}catch(x){note('No se pudo guardar el gasto fijo.')}await utLoad();return drawRep()}
   if(a=='fjdel'){if(!b.dataset.s){b.dataset.s=1;b.textContent='¿Seguro?';return}try{await api('gastos_fijos?id=eq.'+id,{method:'DELETE',headers:{Prefer:'return=minimal'}})}catch(x){}await utLoad();return drawRep()}
+  if(a=='limp'){LIMP.prev=null;LIMP.done=null;return showLimp()}
+  if(a=='lcalc')return limpCalc();
+  if(a=='ldo'){if(!b.dataset.s){b.dataset.s=1;b.textContent='⚠ Se borra para siempre. Toca otra vez';return}return limpRun()}
   if(a=='liq'){if(!LQ){RP='sem';RA=today}return showLiq()}
   if(a=='lp'){RP=b.dataset.v;return showLiq()}
   if(a=='lm'){const n=+b.dataset.n;if(n)repNav(n);else RA=today;return showLiq()}
@@ -1033,6 +1073,7 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id=='imp_ap')setLS('sh-ap',t.value);
   if(t.id=='imp_aps')setLS('sh-aps',t.value);
   if(t.id=='cj_dt'&&t.value){CJ=t.value;showCaja()}
+  if(/^lm_/.test(t.id)){limpRead();LIMP.prev=null;showLimp()}
   if(/^(pi_|pg_|pos_)/.test(t.id)){if(t.id=='pos_add'){if(t.value){posRead();const s=svcs.find(x=>x.id==t.value);if(s)POS.items.push({tipo:'servicio',servicio_id:s.id,descripcion:s.nombre,cantidad:1,precio:s.precio>0?s.precio:'',pro:POS.pro,mats:[]});posRender()}}else if(t.id=='pos_addp'){if(t.value){posRead();const x=PROD.find(y=>y.id==t.value);if(x)POS.items.push({tipo:'producto',servicio_id:null,producto_id:x.id,descripcion:x.nombre,cantidad:1,precio:x.precio>0?x.precio:'',pro:POS.pro});posRender()}}else posInput(t)}});
 document.addEventListener('input',e=>{const t=e.target;
   if(t.id=='q_cli')$('#cli_list').innerHTML=cliRows(t.value);
