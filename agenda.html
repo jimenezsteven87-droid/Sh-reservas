@@ -422,7 +422,7 @@ function posTot(){const k=posCalc(),el=$('#pos_tot');if(!el)return;
 function posInput(t){posRead();if(POS.pagos.length==2&&(t.id=='pg_0_v'||t.id=='pg_1_v')){const k=posCalc(),o=t.id=='pg_0_v'?0:1,i=1-o,rest=Math.max(0,k.pagar-(+POS.pagos[o].v||0));POS.pagos[i].v=rest||'';const e=$('#pg_'+i+'_v');if(e)e.value=POS.pagos[i].v;posTot();return}if(POS.pagos.length==1&&!(t.id||'').startsWith('pg_')){POS.pagos[0].v=posCalc().pagar||'';const e=$('#pg_0_v');if(e)e.value=POS.pagos[0].v}posTot()}
 function posRender(){if(POS.pagos.length==1)POS.pagos[0].v=posCalc().pagar||'';const P=POS;
   const po=sel=>'<option value="">—</option>'+prosA().map(p=>`<option value="${p.id}"${p.id==sel?' selected':''}>${esc(p.nombre)}</option>`).join('');
-  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2)">${P.cita?'Cobrar cita':'Nueva venta'}</h3>
+  $('#m').innerHTML=`<div class="sh wide"><h3 style="margin:0;color:var(--g2);display:flex;justify-content:space-between;align-items:center;gap:8px"><span>${P.cita?'Cobrar cita':'Nueva venta'}</span><button data-a="cajon" data-np="1" style="font-size:13px;padding:6px 10px">🔓 Cajón</button></h3>
   <datalist id="dl_cli">${CLI.map(x=>`<option value="${esc(x.nombre)}">${esc(x.telefono)}</option>`).join('')}</datalist>
   <div class="row2"><label>Cliente (opcional)<input id="pos_cli" list="dl_cli" autocomplete="off" value="${esc(P.cli)}"></label><label>Celular (para enviar el comprobante)<input id="pos_tel" type="tel" value="${esc(P.tel)}"></label></div>
   <label>Atendido por<select id="pos_pro">${po(P.pro)}</select></label>
@@ -522,7 +522,7 @@ function cajaCsv(){const C=CAJ,rows=[...C.ventas.map(v=>({tipo:'venta',hora:v.ho
 const PSECS=[['pr','Equipo'],['prod','Productos'],['rep','Reportes'],['sv','Servicios y precios'],['caja','Caja'],['resp','Respaldo']];
 let PINCFG={existe:false,secciones:[]},PINUNTIL=0,PINREDO=null;
 async function loadPin(){try{const r=await api('rpc/pin_estado',{method:'POST',body:'{}'});PINCFG=r&&r[0]?{existe:!!r[0].existe,secciones:r[0].secciones||[]}:{existe:false,secciones:[]}}catch(e){PINCFG={existe:false,secciones:[]}}}
-const pinLocked=a=>{if(a=='liq')a='rep';if(a=='limp')a='resp';return PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL};
+const pinLocked=a=>{if(a=='cajon')a='caja';if(a=='liq')a='rep';if(a=='limp')a='resp';return PINCFG.existe&&PINCFG.secciones.includes(a)&&Date.now()>PINUNTIL};
 function pinAsk(btn){PINREDO=btn;
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">🔒 Sección protegida</h3><p class="mu">Escribe tu PIN para continuar.</p>
   <input id="pin_in" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="PIN" style="text-align:center;font-size:22px;letter-spacing:.3em">
@@ -574,6 +574,11 @@ function showImp(){const pap=getLS('sh-pap','80'),ap=getLS('sh-ap','0'),aps=getL
   <div class="acts"><button data-a="close">Cerrar</button><button class="pr" data-a="impt">🖨 Imprimir prueba</button></div></div>`;
   $('#m').classList.add('on')}
 function impTest(){const r=$('#rcp');r.style.display='block';window.print();setTimeout(()=>{r.style.display='none'},400)}
+/* abrir el cajón monedero sin registrar nada: imprime un papelito mínimo (ahorra papel) y el driver de la impresora abre el cajón */
+function abrirCajon(){const w=getLS('sh-pap','80'),st=document.createElement('style'),el=document.createElement('div');
+  st.textContent=`@page{size:${w}mm 3mm;margin:0}@media print{body.cj>*:not(#cjp){display:none!important}body.cj>#cjp{display:block!important;font:4px/4px monospace;color:#000;margin:0;padding:0}}`;
+  el.id='cjp';el.style.display='none';el.textContent='.';document.head.appendChild(st);document.body.appendChild(el);document.body.classList.add('cj');
+  window.print();setTimeout(()=>{document.body.classList.remove('cj');st.remove();el.remove()},500)}
 const esperar=ms=>new Promise(r=>setTimeout(r,ms));
 async function autoPrint(){if(getLS('sh-ap','0')!='1'||!VR)return;const modo=getLS('sh-aps','g'),multi=reciboPids(VR).length>1;
   await esperar(350);
@@ -914,7 +919,7 @@ function render(){
   a.innerHTML=`<div class="head"><div class="brand">`+logo()+`<div><div class="hi">${greet}</div><div class="ttl">${esc(dl(date))}</div></div></div><div class="tools"><button data-a="ref" aria-label="Actualizar">↻</button><button data-a="menu" aria-label="Menú" aria-expanded="false">☰</button></div>
   <div class="menu" id="menu">
     ${DI?'<button data-a="inst">📲 Instalar app</button>':''}
-    <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button><button data-a="liq">💸 Pagos a profesionales</button>
+    <div class="mh">Ventas</div><button data-a="pos">🧾 Nueva venta</button><button data-a="caja">💵 Caja</button><button data-a="cajon">🔓 Abrir cajón</button><button data-a="prod">📦 Productos</button><button data-a="rep">📊 Reportes</button><button data-a="liq">💸 Pagos a profesionales</button>
     <div class="mh">Clientes y equipo</div><button data-a="cli">👤 Clientes</button><button data-a="man">📲 Citas de mañana</button><button data-a="pr">👥 Equipo</button><button data-a="sv">✂ Servicios</button><button data-a="bl">☕ Descansos</button>
     <div class="mh">Ajustes</div><button data-a="imp">🖨 Impresión</button><button data-a="pin">🔒 PIN de seguridad</button>${PINCFG.existe&&Date.now()<=PINUNTIL?'<button data-a="lock">🔒 Bloquear secciones ahora</button>':''}<button data-a="resp">💾 Respaldo</button><button data-a="limp">🧹 Liberar espacio</button>${PS!='no'?`<button data-a="push">${PS=='on'?'🔔 Avisos al celular: sí':'🔔 Activar avisos al celular'}</button>`:''}<button data-a="snd">${snd?'🔔 Sonido: activado':'🔕 Sonido: silencio'}</button>
     <button class="out" data-a="out">Cerrar sesión</button>
@@ -930,7 +935,7 @@ function render(){
 document.addEventListener('click',async e=>{const mu=$('#menu');
   if(mu&&mu.classList.contains('on')&&!e.target.closest('[data-a=menu]')&&!(e.target.closest('#menu')&&!e.target.closest('button')))mu.classList.remove('on');
   const b=e.target.closest('button,[data-a]');if(!b)return;const a=b.dataset.a,id=b.dataset.id;
-  if(a&&pinLocked(a))return pinAsk(b);
+  if(a&&!b.dataset.np&&pinLocked(a))return pinAsk(b);
   if(a=='menu'){const on=!mu.classList.contains('on');mu.classList.toggle('on',on);b.setAttribute('aria-expanded',on);return}
   if(a=='login')return login();
   if(a=='out'){try{localStorage.removeItem('sh-rt')}catch(x){}ROL={rol:'dueno'};PS='no';S=null;return render()}
@@ -991,6 +996,7 @@ document.addEventListener('click',async e=>{const mu=$('#menu');
   if(a=='pinx'){PINREDO=null;return closeM()}
   if(a=='lock'){PINUNTIL=0;note('🔒 Secciones bloqueadas.');return render()}
   if(a=='impt')return impTest();
+  if(a=='cajon')return abrirCajon();
   if(a=='pma'){posRead();const it=POS.items[+b.dataset.i];(it.mats=it.mats||[]).push({pid:'',q:''});return posRender()}
   if(a=='pmd'){posRead();POS.items[+b.dataset.i].mats.splice(+b.dataset.k,1);return posRender()}
   if(a=='pid'){posRead();POS.items.splice(+b.dataset.i,1);return posRender()}
