@@ -817,7 +817,7 @@ async function accSet(id,on){const f=$('#fe'),mail=$('#p_mail').value.trim();
   catch(e){f.textContent=e.detail||'No se pudo cambiar el acceso.'}}
 
 /* ---------- reserva hecha por el profesional en su propia agenda ---------- */
-const PHORAS=(()=>{const l=[];for(let t=9*60;t<=20*60;t+=30)l.push(tm(t));return l})();
+const PHORAS=(()=>{const l=[];for(let t=6*60;t<=21*60;t+=30)l.push(tm(t));return l})();
 function pForm(d){d=d||{};const sv=(sel)=>PSVC.map(s=>`<option value="${s.id}"${s.id==sel?' selected':''}>${esc(s.nombre)} · ${s.dur_min} min</option>`).join('');
   const dur=PSV.reduce((a,id)=>a+(PSVC.find(s=>s.id==id)?.dur_min||0),0);
   $('#m').innerHTML=`<div class="sh"><h3 style="margin:0;color:var(--g2)">Nueva reserva · ${esc(ROL.nombre||'')}</h3>
